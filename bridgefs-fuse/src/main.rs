@@ -1,3 +1,10 @@
+use bridgefs_core::content_store::{self, ParsingContentStoreExt};
+use bridgefs_core::data_block::DataBlock;
+use bridgefs_core::file_record::{CommonAttrs, DirectoryRecord, FileRecord, Record};
+use bridgefs_core::filename::Filename;
+use bridgefs_core::hash_pointer::TypedHashPointer;
+use bridgefs_core::index::Index;
+use bridgefs_core::inode::INode;
 use fuser::{
     FUSE_ROOT_ID, FileType, Filesystem, MountOption, ReplyAttr, ReplyCreate, ReplyData,
     ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyWrite, Request, TimeOrNow,
@@ -7,23 +14,11 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::time::{Duration, SystemTime};
 
-use crate::content_store::ParsingContentStoreExt;
-use crate::data_block::DataBlock;
-use crate::file_record::{CommonAttrs, DirectoryRecord, FileRecord, Record};
-use crate::filename::Filename;
-use crate::hash_pointer::TypedHashPointer;
-use crate::index::Index;
-use crate::inode::INode;
+use crate::fuse_file_ext::FuseFileExt;
 
 const TTL: Duration = Duration::from_secs(0);
 
-mod content_store;
-mod data_block;
-mod file_record;
-mod filename;
-mod hash_pointer;
-mod index;
-mod inode;
+mod fuse_file_ext;
 
 #[derive(Debug)]
 struct BridgeFS {
@@ -38,7 +33,7 @@ impl BridgeFS {
         let root_directory = DirectoryRecord::default();
         let root_hash = store.add_parsed(&Record::Directory(root_directory));
 
-        let initial_index = Index::new(root_hash);
+        let initial_index = Index::new(FUSE_ROOT_ID.into(), root_hash);
         let index_hash = store.add_parsed(&initial_index);
         BridgeFS { index_hash, store }
     }
@@ -296,7 +291,7 @@ impl Filesystem for BridgeFS {
             }
         };
 
-        let attr = file_record.file_attr(inode);
+        let attr = file_record.attrs(inode);
         reply.created(&TTL, &attr, 0, 0, 0);
     }
 
@@ -356,7 +351,7 @@ impl Filesystem for BridgeFS {
         self.index_hash = self.store.add_parsed(&index);
 
         let attr = match file_record {
-            Record::File(file_record) => file_record.file_attr(ino.into()),
+            Record::File(file_record) => file_record.attrs(ino.into()),
             Record::Directory(_directory_record) => todo!(),
         };
         reply.attr(&TTL, &attr);
@@ -391,7 +386,7 @@ impl Filesystem for BridgeFS {
                 return;
             }
         };
-        let attr = directory_record.dir_attr(inode);
+        let attr = directory_record.attrs(inode);
         reply.entry(&TTL, &attr, 0);
     }
 

@@ -7,7 +7,6 @@ use crate::{
 use std::collections::HashMap;
 
 use bincode::{Decode, Encode};
-use fuser::FUSE_ROOT_ID;
 
 #[derive(Encode, Decode, Debug)]
 pub struct Index {
@@ -16,9 +15,9 @@ pub struct Index {
 }
 
 impl Index {
-    pub fn new(root: TypedHashPointer<Record>) -> Self {
+    pub fn new(root_inode: INode, root: TypedHashPointer<Record>) -> Self {
         let mut inode_mapping = HashMap::new();
-        inode_mapping.insert(FUSE_ROOT_ID.into(), root);
+        inode_mapping.insert(root_inode, root);
         Self {
             next_inode: INode::default(),
             inode_mapping,

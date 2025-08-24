@@ -1,7 +1,6 @@
 use std::{collections::HashMap, time::SystemTime};
 
 use bincode::{Decode, Encode};
-use fuser::{FileAttr, FileType};
 
 use crate::{
     data_block::DataBlock, filename::Filename, hash_pointer::TypedHashPointer, inode::INode,
@@ -18,20 +17,6 @@ impl Record {
         match self {
             Record::File(file_record) => &mut file_record.common_attrs,
             Record::Directory(directory_record) => &mut directory_record.common_attrs,
-        }
-    }
-
-    pub fn attrs(&self, inode: INode) -> FileAttr {
-        match self {
-            Record::File(file_record) => file_record.file_attr(inode),
-            Record::Directory(directory_record) => directory_record.dir_attr(inode),
-        }
-    }
-
-    pub fn file_type(&self) -> FileType {
-        match self {
-            Record::File(_) => FileType::RegularFile,
-            Record::Directory(_) => FileType::Directory,
         }
     }
 }
@@ -62,24 +47,8 @@ impl DirectoryRecord {
         self.children.get(filename)
     }
 
-    pub fn dir_attr(&self, inode: INode) -> FileAttr {
-        FileAttr {
-            ino: inode.into(),
-            size: 0,
-            blocks: 0,
-            atime: self.common_attrs.atime,
-            mtime: self.common_attrs.mtime,
-            ctime: self.common_attrs.ctime,
-            crtime: self.common_attrs.crtime,
-            kind: FileType::Directory,
-            perm: self.common_attrs.perm,
-            nlink: 2,
-            uid: self.common_attrs.uid, // Change to appropriate user ID
-            gid: self.common_attrs.gid, // Change to appropriate group ID
-            rdev: 0,
-            flags: 0,
-            blksize: 512,
-        }
+    pub fn size(&self) -> usize {
+        self.children.len()
     }
 
     pub fn list_children(&self) -> Vec<IndexMapping> {
@@ -122,27 +91,5 @@ pub struct CommonAttrs {
 impl Default for CommonAttrs {
     fn default() -> CommonAttrs {
         CommonAttrs::builder().build()
-    }
-}
-
-impl FileRecord {
-    pub fn file_attr(&self, inode: INode) -> FileAttr {
-        FileAttr {
-            ino: inode.into(),
-            size: self.size,
-            blocks: 0,
-            atime: self.common_attrs.atime,
-            mtime: self.common_attrs.mtime,
-            ctime: self.common_attrs.ctime,
-            crtime: self.common_attrs.crtime,
-            kind: FileType::RegularFile,
-            perm: self.common_attrs.perm,
-            nlink: 2,
-            uid: self.common_attrs.uid, // Change to appropriate user ID
-            gid: self.common_attrs.gid, // Change to appropriate group ID
-            rdev: 0,
-            flags: 0,
-            blksize: 512,
-        }
     }
 }
