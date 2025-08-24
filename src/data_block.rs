@@ -4,3 +4,9 @@ use bincode::{Decode, Encode};
 pub struct DataBlock {
     pub data: Vec<u8>,
 }
+
+impl DataBlock {
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+}

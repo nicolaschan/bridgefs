@@ -29,8 +29,8 @@ impl From<u64> for INode {
     }
 }
 
-impl Into<u64> for INode {
-    fn into(self) -> u64 {
-        self.get()
+impl From<INode> for u64 {
+    fn from(inode: INode) -> Self {
+        inode.get()
     }
 }

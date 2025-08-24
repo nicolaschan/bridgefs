@@ -15,8 +15,8 @@ impl From<&std::ffi::OsStr> for Filename {
     }
 }
 
-impl Into<std::ffi::OsString> for Filename {
-    fn into(self) -> std::ffi::OsString {
-        std::ffi::OsString::from_vec(self.name)
+impl From<Filename> for std::ffi::OsString {
+    fn from(filename: Filename) -> Self {
+        std::ffi::OsString::from_vec(filename.name)
     }
 }
