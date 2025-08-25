@@ -8,17 +8,9 @@ pub trait ContentStore {
     fn get_content(&self, hash: &HashPointer) -> Vec<u8>;
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct InMemoryContentStore {
     store: std::collections::HashMap<HashPointer, Vec<u8>>,
-}
-
-impl InMemoryContentStore {
-    pub fn new() -> Self {
-        InMemoryContentStore {
-            store: std::collections::HashMap::new(),
-        }
-    }
 }
 
 impl ContentStore for InMemoryContentStore {

@@ -1,8 +1,10 @@
-use bridgefs_core::content_store::{self, ParsingContentStoreExt};
+use baybridge::client::Actions;
+use baybridge::configuration::Configuration;
+use bridgefs_core::content_store::{ContentStore, ParsingContentStoreExt};
 use bridgefs_core::data_block::DataBlock;
 use bridgefs_core::file_record::{CommonAttrs, DirectoryRecord, FileRecord, Record};
 use bridgefs_core::filename::Filename;
-use bridgefs_core::hash_pointer::TypedHashPointer;
+use bridgefs_core::hash_pointer::TypedHashPointerReference;
 use bridgefs_core::index::Index;
 use bridgefs_core::inode::INode;
 use fuser::{
@@ -14,32 +16,41 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::time::{Duration, SystemTime};
 
+use crate::baybridge_adapter::{
+    BaybridgeAdapter, BaybridgeContentStore, BaybridgeHashPointerReference,
+};
 use crate::fuse_file_ext::FuseFileExt;
 
 const TTL: Duration = Duration::from_secs(0);
 
+mod baybridge_adapter;
 mod fuse_file_ext;
 
 #[derive(Debug)]
-struct BridgeFS {
-    index_hash: TypedHashPointer<Index>,
-    store: content_store::InMemoryContentStore,
+struct BridgeFS<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> {
+    index_hash: IndexHashT,
+    store: StoreT,
 }
 
-impl BridgeFS {
-    fn new() -> Self {
-        let mut store = content_store::InMemoryContentStore::new();
+impl<'a> BridgeFS<BaybridgeHashPointerReference<'a>, BaybridgeContentStore<'a>> {
+    fn new(adapter: &'a BaybridgeAdapter) -> Self {
+        let mut store = adapter.content_store();
 
         let root_directory = DirectoryRecord::default();
         let root_hash = store.add_parsed(&Record::Directory(root_directory));
 
         let initial_index = Index::new(FUSE_ROOT_ID.into(), root_hash);
         let index_hash = store.add_parsed(&initial_index);
+        let index_hash = adapter.hash_pointer_reference(index_hash);
         BridgeFS { index_hash, store }
     }
+}
 
+impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
+    BridgeFS<IndexHashT, StoreT>
+{
     fn get_index(&mut self) -> Index {
-        self.store.get_parsed(&self.index_hash)
+        self.store.get_parsed(&self.index_hash.get_typed())
     }
 
     fn get_record_by_inode(&mut self, inode: INode) -> Option<Record> {
@@ -71,12 +82,14 @@ impl BridgeFS {
         let parent_hash = self.store.add_parsed(&Record::Directory(parent));
         index.update_child(parent_inode, parent_hash);
 
-        self.index_hash = self.store.add_parsed(&index);
+        self.index_hash.set_typed(&self.store.add_parsed(&index));
         Ok(inode)
     }
 }
 
-impl Filesystem for BridgeFS {
+impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesystem
+    for BridgeFS<IndexHashT, StoreT>
+{
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         // TODO: Implement file/directory lookup
         // This is called when the kernel needs to look up a file or directory
@@ -250,7 +263,7 @@ impl Filesystem for BridgeFS {
         let record = Record::File(file_record);
         let file_record_hash = self.store.add_parsed(&record);
         index.update_child(ino.into(), file_record_hash);
-        self.index_hash = self.store.add_parsed(&index);
+        self.index_hash.set_typed(&self.store.add_parsed(&index));
 
         dbg!(record);
         reply.written(data.len() as u32);
@@ -348,7 +361,7 @@ impl Filesystem for BridgeFS {
 
         let new_file_record_hash = self.store.add_parsed(&file_record);
         index.update_child(ino.into(), new_file_record_hash);
-        self.index_hash = self.store.add_parsed(&index);
+        self.index_hash.set_typed(&self.store.add_parsed(&index));
 
         let attr = match file_record {
             Record::File(file_record) => file_record.attrs(ino.into()),
@@ -410,7 +423,7 @@ impl Filesystem for BridgeFS {
         parent.remove(&name.into());
         let parent_hash = self.store.add_parsed(&Record::Directory(parent));
         index.update_child(parent_inode, parent_hash);
-        self.index_hash = self.store.add_parsed(&index);
+        self.index_hash.set_typed(&self.store.add_parsed(&index));
         reply.ok();
     }
 
@@ -457,7 +470,7 @@ impl Filesystem for BridgeFS {
         parent.remove(&name.into());
         let parent_hash = self.store.add_parsed(&Record::Directory(parent));
         index.update_child(parent_inode, parent_hash);
-        self.index_hash = self.store.add_parsed(&index);
+        self.index_hash.set_typed(&self.store.add_parsed(&index));
         reply.ok();
     }
 }
@@ -480,8 +493,13 @@ fn main() {
         MountOption::FSName("bridgefs".to_string()),
     ];
 
+    let config = Configuration::default();
+    let actions = Actions::new(config);
+    let adapter = BaybridgeAdapter::new(actions);
+    let bridgefs = BridgeFS::new(&adapter);
+
     // Mount the filesystem
-    if let Err(e) = fuser::mount2(BridgeFS::new(), &mountpoint, &options) {
+    if let Err(e) = fuser::mount2(bridgefs, &mountpoint, &options) {
         eprintln!("Failed to mount filesystem: {}", e);
         if e.kind() == std::io::ErrorKind::PermissionDenied {
             eprintln!("Hint: If you need AllowOther, either:");

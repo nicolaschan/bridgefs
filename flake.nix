@@ -32,6 +32,7 @@
             rust-analyzer
             cargo-edit
             pkg-config
+            openssl
             fuse3
           ];
         };

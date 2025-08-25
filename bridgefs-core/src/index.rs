@@ -42,7 +42,7 @@ impl Index {
         let inode = self.next_inode;
         parent.insert(name, inode);
         self.inode_mapping.insert(inode, hash);
-        self.next_inode = self.next_inode.next();
+        self.next_inode = self.next_inode.next_inode();
         inode
     }
 

@@ -12,7 +12,7 @@ impl INode {
         self.0
     }
 
-    pub fn next(&mut self) -> INode {
+    pub fn next_inode(&mut self) -> INode {
         INode(self.0 + 1)
     }
 }

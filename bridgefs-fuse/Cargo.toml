@@ -5,5 +5,8 @@ edition = "2024"
 
 [dependencies]
 bridgefs-core = { path = "../bridgefs-core" }
+baybridge = { git = "https://github.com/nicolaschan/baybridge.git" }
 fuser = "0.15.1"
 libc = "0.2.175"
+tokio = "1.47.1"
+bincode = "2.0.1"
