@@ -4,9 +4,10 @@ use bridgefs_core::content_store::{ContentStore, ParsingContentStoreExt};
 use bridgefs_core::data_block::DataBlock;
 use bridgefs_core::file_record::{CommonAttrs, DirectoryRecord, FileRecord, Record};
 use bridgefs_core::filename::Filename;
-use bridgefs_core::hash_pointer::TypedHashPointerReference;
+use bridgefs_core::hash_pointer::{HashPointerReference, TypedHashPointerReference};
 use bridgefs_core::index::Index;
 use bridgefs_core::inode::INode;
+use bridgefs_core::manifest::Manifest;
 use fuser::{
     FUSE_ROOT_ID, FileType, Filesystem, MountOption, ReplyAttr, ReplyCreate, ReplyData,
     ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyWrite, Request, TimeOrNow,
@@ -21,7 +22,7 @@ use crate::baybridge_adapter::{
 };
 use crate::fuse_file_ext::FuseFileExt;
 
-const TTL: Duration = Duration::from_secs(0);
+const TTL: Duration = Duration::ZERO;
 
 mod baybridge_adapter;
 mod fuse_file_ext;
@@ -30,19 +31,29 @@ mod fuse_file_ext;
 struct BridgeFS<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> {
     index_hash: IndexHashT,
     store: StoreT,
+    manifest: Manifest,
 }
 
 impl<'a> BridgeFS<BaybridgeHashPointerReference<'a>, BaybridgeContentStore<'a>> {
     fn new(adapter: &'a BaybridgeAdapter) -> Self {
         let mut store = adapter.content_store();
+        let mut manifest = Manifest::default();
 
         let root_directory = DirectoryRecord::default();
         let root_hash = store.add_parsed(&Record::Directory(root_directory));
 
         let initial_index = Index::new(FUSE_ROOT_ID.into(), root_hash);
         let index_hash = store.add_parsed(&initial_index);
-        let index_hash = adapter.hash_pointer_reference(index_hash);
-        BridgeFS { index_hash, store }
+        manifest.references.insert((&index_hash).into());
+
+        let mut index_hash = adapter.hash_pointer_reference(index_hash);
+        manifest.references.insert(index_hash.get().into());
+
+        BridgeFS {
+            index_hash,
+            store,
+            manifest,
+        }
     }
 }
 

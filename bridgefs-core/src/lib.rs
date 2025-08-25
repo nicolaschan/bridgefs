@@ -5,3 +5,4 @@ pub mod filename;
 pub mod hash_pointer;
 pub mod index;
 pub mod inode;
+pub mod manifest;

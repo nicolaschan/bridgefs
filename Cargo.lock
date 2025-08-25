@@ -298,7 +298,7 @@ dependencies = [
 [[package]]
 name = "baybridge"
 version = "0.1.0"
-source = "git+https://github.com/nicolaschan/baybridge.git#936a88b5d0a034b682523edb589beb99d8e0fe3d"
+source = "git+https://github.com/nicolaschan/baybridge.git#065aeb67d5e4316f3154db907b45ba8a27224a23"
 dependencies = [
  "anyhow",
  "askama",

@@ -3,7 +3,7 @@ use std::{fmt::Debug, marker::PhantomData};
 use base64::{Engine, engine::general_purpose};
 use bincode::{Decode, Encode};
 
-#[derive(Encode, Decode, Hash, PartialEq, Eq, Clone)]
+#[derive(Encode, Decode, Hash, PartialOrd, Ord, PartialEq, Eq, Clone)]
 pub struct HashPointer {
     bytes: [u8; 32],
 }
@@ -38,7 +38,7 @@ impl Debug for HashPointer {
     }
 }
 
-#[derive(Encode, Decode, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(Encode, Decode, Hash, PartialEq, PartialOrd, Ord, Eq, Clone, Debug)]
 pub struct TypedHashPointer<T> {
     hash_pointer: HashPointer,
     _marker: PhantomData<T>,

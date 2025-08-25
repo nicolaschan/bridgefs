@@ -1,6 +1,6 @@
 use baybridge::{
     client::Actions,
-    models::{Name, Value},
+    models::{ContentBlock, Name, Value},
 };
 use bridgefs_core::{
     content_store::ContentStore,
@@ -31,7 +31,7 @@ impl BaybridgeAdapter {
         default_value: TypedHashPointer<Index>,
     ) -> BaybridgeHashPointerReference<'_> {
         BaybridgeHashPointerReference {
-            name: Name::new("filesystem".to_string()),
+            name: Name::new("filesystem2".to_string()),
             default_value,
             adapter: self,
         }
@@ -50,18 +50,24 @@ pub struct BaybridgeHashPointerReference<'a> {
 
 impl ContentStore for BaybridgeContentStore<'_> {
     fn add_content(&mut self, content: &[u8]) -> HashPointer {
+        let content_block = ContentBlock {
+            data: content.to_vec(),
+            references: Vec::new(),
+        };
         self.adapter
             .runtime
-            .block_on(self.adapter.actions.set_immutable(content.to_vec()))
+            .block_on(self.adapter.actions.set_immutable(content_block))
             .unwrap()
             .into()
     }
 
     fn get_content(&self, hash: &HashPointer) -> Vec<u8> {
-        self.adapter
+        let content_block = self
+            .adapter
             .runtime
             .block_on(self.adapter.actions.get_immutable(&hash.into()))
-            .unwrap()
+            .unwrap();
+        content_block.data
     }
 }
 
