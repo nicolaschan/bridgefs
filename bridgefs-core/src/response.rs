@@ -41,6 +41,7 @@ pub enum FileOperationError {
     NotFound,
     NotADirectory,
     IsADirectory,
+    DirectoryNotEmpty,
 }
 
 #[derive(Debug)]

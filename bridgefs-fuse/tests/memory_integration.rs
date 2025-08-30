@@ -11,6 +11,7 @@ static EMPTY_FILENAME: &str = "empty_file";
 static FILENAME: &str = "file";
 static DIRNAME: &str = "dir";
 static FILE_UNDER_DIR: &str = "file_under_dir";
+static EMPTY_DIRNAME: &str = "empty_dir";
 
 fn empty_in_memory_bridgefs() -> BridgeFS<InMemoryHashPointerReference, InMemoryContentStore> {
     let mut store = InMemoryContentStore::default();
@@ -46,6 +47,14 @@ fn in_memory_bridgefs() -> BridgeFS<InMemoryHashPointerReference, InMemoryConten
     bridgefs
         .write_to_file(file_under_dir.inode, 0, b"File under directory")
         .expect("Failed to write data to file under directory");
+
+    bridgefs
+        .create_directory(
+            FUSE_ROOT_ID.into(),
+            EMPTY_DIRNAME.into(),
+            CommonAttrs::default(),
+        )
+        .expect("Failed to create empty directory");
     bridgefs
 }
 
@@ -150,7 +159,8 @@ fn test_list_root_directory() {
     assert!(names.contains(&EMPTY_FILENAME.to_string()));
     assert!(names.contains(&FILENAME.to_string()));
     assert!(names.contains(&DIRNAME.to_string()));
-    assert_eq!(names.len(), 5);
+    assert!(names.contains(&EMPTY_DIRNAME.to_string()));
+    assert_eq!(names.len(), 6);
 }
 
 #[test]
@@ -169,4 +179,33 @@ fn test_list_subdirectory() {
     assert!(names.contains(&"..".to_string()));
     assert!(names.contains(&FILE_UNDER_DIR.to_string()));
     assert_eq!(names.len(), 3);
+}
+
+#[test]
+fn test_remove_directory_non_empty() {
+    let mut bridgefs = in_memory_bridgefs();
+    let remove_result = bridgefs.remove_directory_by_name(FUSE_ROOT_ID.into(), &DIRNAME.into());
+    assert!(remove_result.is_err());
+    assert_eq!(
+        remove_result.unwrap_err(),
+        FileOperationError::DirectoryNotEmpty
+    );
+
+    // Ensure the directory still exists
+    let dir_record_after = bridgefs.lookup_record_by_name(FUSE_ROOT_ID.into(), &DIRNAME.into());
+    assert!(dir_record_after.is_ok());
+}
+
+#[test]
+fn test_remove_directory_empty() {
+    let mut bridgefs = in_memory_bridgefs();
+    let remove_result =
+        bridgefs.remove_directory_by_name(FUSE_ROOT_ID.into(), &EMPTY_DIRNAME.into());
+    assert!(remove_result.is_ok());
+
+    // Ensure the directory is removed
+    let dir_record_after =
+        bridgefs.lookup_record_by_name(FUSE_ROOT_ID.into(), &EMPTY_DIRNAME.into());
+    assert!(dir_record_after.is_err());
+    assert_eq!(dir_record_after.unwrap_err(), FileOperationError::NotFound);
 }

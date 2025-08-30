@@ -133,6 +133,18 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
         Ok(INodeResponse::new(record, file_data.inode))
     }
 
+    fn lookup_directory_by_name(
+        &mut self,
+        parent: INode,
+        name: &Filename,
+    ) -> Result<INodeResponse<DirectoryRecord>, FileOperationError> {
+        let record = self.lookup_record_by_name(parent, name)?;
+        match record.inner {
+            Record::Directory(directory) => Ok(INodeResponse::new(directory, record.inode)),
+            _ => Err(FileOperationError::NotADirectory),
+        }
+    }
+
     pub fn read_file_data_by_inode(
         &mut self,
         inode: INode,
@@ -254,5 +266,21 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
         });
 
         Ok(ListDirectoryResponse { directory, entries })
+    }
+
+    pub fn remove_directory_by_name(
+        &mut self,
+        parent: INode,
+        name: &Filename,
+    ) -> Result<(), FileOperationError> {
+        let target = self.lookup_directory_by_name(parent, name)?;
+        if !target.inner.children.is_empty() {
+            return Err(FileOperationError::DirectoryNotEmpty);
+        }
+
+        let mut parent = self.lookup_directory_by_inode(parent)?;
+        parent.inner.remove(name);
+        self.update_index(parent.inode, parent.inner.into());
+        Ok(())
     }
 }

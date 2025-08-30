@@ -15,7 +15,7 @@ use fuser::{
     Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
     ReplyWrite, Request, TimeOrNow,
 };
-use libc::{ENOENT, ENOTDIR, ENOTEMPTY};
+use libc::{ENOENT, ENOTDIR};
 
 use crate::{
     baybridge_adapter::{BaybridgeAdapter, BaybridgeContentStore, BaybridgeHashPointerReference},
@@ -291,52 +291,14 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
     }
 
     fn rmdir(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        let parent_inode = parent.into();
-        let parent = self.0.get_record_by_inode(parent_inode);
-        if parent.is_none() {
-            reply.error(ENOENT);
-            return;
-        }
-        let mut parent = match parent.unwrap() {
-            Record::Directory(dir) => dir,
-            _ => {
-                reply.error(ENOTDIR);
-                return;
+        match self.0.remove_directory_by_name(parent.into(), &name.into()) {
+            Ok(_) => {
+                reply.ok();
             }
-        };
-
-        let target_inode = match parent.get(&name.into()) {
-            Some(inode) => *inode,
-            None => {
-                reply.error(ENOENT);
-                return;
+            Err(e) => {
+                reply.error(e.to_errno());
             }
-        };
-        let target_record = self.0.get_record_by_inode(target_inode);
-        if target_record.is_none() {
-            reply.error(ENOENT);
-            return;
         }
-        let target_directory = match target_record.unwrap() {
-            Record::Directory(dir) => dir,
-            _ => {
-                reply.error(ENOTDIR);
-                return;
-            }
-        };
-        if !target_directory.children.is_empty() {
-            reply.error(ENOTEMPTY);
-            return;
-        }
-
-        let mut index = self.0.get_index();
-        parent.remove(&name.into());
-        let parent_hash = self.0.store.add_parsed(&Record::Directory(parent));
-        index.update_child(parent_inode, parent_hash);
-        self.0
-            .index_hash
-            .set_typed(&self.0.store.add_parsed(&index));
-        reply.ok();
     }
 }
 
