@@ -22,6 +22,12 @@ impl From<&HashPointer> for blake3::Hash {
     }
 }
 
+impl<T> From<TypedHashPointer<T>> for HashPointer {
+    fn from(typed_hash_pointer: TypedHashPointer<T>) -> Self {
+        typed_hash_pointer.hash_pointer
+    }
+}
+
 impl<T> From<&TypedHashPointer<T>> for HashPointer {
     fn from(typed_hash_pointer: &TypedHashPointer<T>) -> Self {
         typed_hash_pointer.hash_pointer.clone()
@@ -69,3 +75,23 @@ pub trait TypedHashPointerReference<T>: HashPointerReference {
 }
 
 impl<U, T: HashPointerReference> TypedHashPointerReference<U> for T {}
+
+pub struct InMemoryHashPointerReference {
+    value: HashPointer,
+}
+
+impl InMemoryHashPointerReference {
+    pub fn new(value: HashPointer) -> Self {
+        Self { value }
+    }
+}
+
+impl HashPointerReference for InMemoryHashPointerReference {
+    fn set(&mut self, value: &HashPointer) {
+        self.value = value.clone();
+    }
+
+    fn get(&mut self) -> HashPointer {
+        self.value.clone()
+    }
+}
