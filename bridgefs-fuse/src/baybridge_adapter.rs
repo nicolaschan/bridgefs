@@ -31,7 +31,7 @@ impl BaybridgeAdapter {
         default_value: TypedHashPointer<Index>,
     ) -> BaybridgeHashPointerReference<'_> {
         BaybridgeHashPointerReference {
-            name: Name::new("filesystem2".to_string()),
+            name: Name::new("filesystem3".to_string()),
             default_value,
             adapter: self,
         }

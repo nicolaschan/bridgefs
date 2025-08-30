@@ -136,3 +136,37 @@ fn test_read_file_under_directory() {
     let data = read_result.unwrap();
     assert_eq!(data.datablock.data, b"File under directory");
 }
+
+#[test]
+fn test_list_root_directory() {
+    let mut bridgefs = in_memory_bridgefs();
+    let entries = bridgefs.list_directory_by_inode(FUSE_ROOT_ID.into());
+    assert!(entries.is_ok());
+    let entries = entries.unwrap();
+    let names: Vec<String> = entries.entries.into_iter().map(|e| e.name.into()).collect();
+
+    assert!(names.contains(&".".to_string()));
+    assert!(names.contains(&"..".to_string()));
+    assert!(names.contains(&EMPTY_FILENAME.to_string()));
+    assert!(names.contains(&FILENAME.to_string()));
+    assert!(names.contains(&DIRNAME.to_string()));
+    assert_eq!(names.len(), 5);
+}
+
+#[test]
+fn test_list_subdirectory() {
+    let mut bridgefs = in_memory_bridgefs();
+    let dir_record = bridgefs.lookup_record_by_name(FUSE_ROOT_ID.into(), &DIRNAME.into());
+    assert!(dir_record.is_ok());
+    let dir_inode = dir_record.unwrap().inode;
+
+    let entries = bridgefs.list_directory_by_inode(dir_inode);
+    assert!(entries.is_ok());
+    let entries = entries.unwrap();
+    let names: Vec<String> = entries.entries.into_iter().map(|e| e.name.into()).collect();
+
+    assert!(names.contains(&".".to_string()));
+    assert!(names.contains(&"..".to_string()));
+    assert!(names.contains(&FILE_UNDER_DIR.to_string()));
+    assert_eq!(names.len(), 3);
+}

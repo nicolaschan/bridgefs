@@ -8,7 +8,10 @@ use bridgefs_core::{
     hash_pointer::TypedHashPointerReference,
     index::Index,
     inode::INode,
-    response::{FileOperationError, INodeResponse, ReadFileResponse},
+    response::{
+        FileOperationError, INodeResponse, ListDirectoryEntry, ListDirectoryResponse,
+        ReadFileResponse,
+    },
 };
 
 #[derive(Debug)]
@@ -184,7 +187,10 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
         name: Filename,
         attributes: CommonAttrs,
     ) -> Result<INodeResponse<DirectoryRecord>, FileOperationError> {
-        let directory_record = DirectoryRecord::builder().common_attrs(attributes).build();
+        let directory_record = DirectoryRecord::builder()
+            .common_attrs(attributes)
+            .parent(parent)
+            .build();
         let inode = self.add_child(
             parent.into(),
             name.into(),
@@ -218,5 +224,35 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
         let new_record = Record::File(existing_data.file.inner);
         self.update_index(inode.into(), new_record);
         Ok(data.len())
+    }
+
+    pub fn list_directory_by_inode(
+        &mut self,
+        inode: INode,
+    ) -> Result<ListDirectoryResponse, FileOperationError> {
+        let directory = self.lookup_directory_by_inode(inode)?;
+
+        let mut entries = Vec::new();
+
+        for entry in directory.inner.list_children() {
+            let record = self.lookup_record_by_inode(entry.inode)?;
+            entries.push(ListDirectoryEntry {
+                name: entry.name.into(),
+                record,
+            });
+        }
+
+        entries.push(ListDirectoryEntry {
+            name: ".".into(),
+            record: directory.clone().convert_inner(),
+        });
+
+        let parent = self.lookup_record_by_inode(directory.inner.parent)?;
+        entries.push(ListDirectoryEntry {
+            name: "..".into(),
+            record: parent,
+        });
+
+        Ok(ListDirectoryResponse { directory, entries })
     }
 }

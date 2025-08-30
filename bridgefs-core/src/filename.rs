@@ -21,6 +21,12 @@ impl From<Filename> for std::ffi::OsString {
     }
 }
 
+impl From<Filename> for String {
+    fn from(filename: Filename) -> Self {
+        String::from_utf8_lossy(&filename.name).to_string()
+    }
+}
+
 impl From<&str> for Filename {
     fn from(s: &str) -> Self {
         Filename {

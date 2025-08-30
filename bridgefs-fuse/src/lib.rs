@@ -11,8 +11,8 @@ use bridgefs_core::{
     inode::INode,
 };
 use fuser::{
-    FUSE_ROOT_ID, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory,
-    ReplyEmpty, ReplyEntry, ReplyWrite, Request, TimeOrNow,
+    Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
+    ReplyWrite, Request, TimeOrNow,
 };
 use libc::{ENOENT, ENOTDIR, ENOTEMPTY};
 
@@ -96,40 +96,22 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        // For now, just return empty directory with . and ..
-        let mut entries = vec![
-            (FUSE_ROOT_ID, FileType::Directory, OsString::from(".")),
-            (FUSE_ROOT_ID, FileType::Directory, OsString::from("..")),
-            // TODO: Add your files/directories here
-            // Example: (2, FileType::RegularFile, "hello.txt"),
-        ];
-
-        let directory = self.get_record_by_inode(ino.into());
-        if directory.is_none() {
-            reply.error(ENOENT);
-            return;
-        }
-        let directory = match directory.unwrap() {
-            Record::Directory(dir) => dir,
-            _ => {
-                reply.error(ENOTDIR);
+        let entries = match self.list_directory_by_inode(ino.into()) {
+            Ok(entries) => entries,
+            Err(e) => {
+                reply.error(e.to_errno());
                 return;
             }
         };
 
-        for entry in directory.list_children() {
-            let entry_record = self
-                .get_record_by_inode(entry.inode)
-                .expect("Directory entry inode should exist");
-            entries.push((
-                entry.inode.into(),
-                entry_record.file_type(),
-                entry.name.into(),
-            ));
-        }
-
-        for (i, (ino, kind, name)) in entries.into_iter().enumerate().skip(offset as usize) {
-            if reply.add(ino, (i + 1) as i64, kind, name) {
+        for (i, entry) in entries
+            .entries
+            .into_iter()
+            .enumerate()
+            .skip(offset as usize)
+        {
+            let name: OsString = entry.name.into();
+            if reply.add(ino, (i + 1) as i64, entry.record.inner.file_type(), name) {
                 break;
             }
         }

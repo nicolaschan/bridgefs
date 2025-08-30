@@ -21,11 +21,24 @@ impl Record {
     }
 }
 
+impl From<FileRecord> for Record {
+    fn from(value: FileRecord) -> Self {
+        Record::File(value)
+    }
+}
+
+impl From<DirectoryRecord> for Record {
+    fn from(value: DirectoryRecord) -> Self {
+        Record::Directory(value)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Default, bon::Builder)]
 pub struct DirectoryRecord {
     #[builder(default = HashMap::new())]
     pub children: HashMap<Filename, INode>,
     pub common_attrs: CommonAttrs,
+    pub parent: INode,
 }
 
 #[derive(Hash, PartialEq, Eq, Clone)]
