@@ -1,7 +1,7 @@
 use baybridge::client::Actions;
 use baybridge::configuration::Configuration;
-use bridgefs_fuse::BridgeFS;
 use bridgefs_fuse::baybridge_adapter::BaybridgeAdapter;
+use bridgefs_fuse::bridgefs::BridgeFS;
 use fuser::MountOption;
 use std::env;
 

@@ -3,7 +3,7 @@ use std::ffi::OsStr;
 use bridgefs_core::{
     content_store::InMemoryContentStore, hash_pointer::InMemoryHashPointerReference,
 };
-use bridgefs_fuse::{BridgeFS, fuse_store_ext::FuseStoreExt};
+use bridgefs_fuse::{bridgefs::BridgeFS, fuse_store_ext::FuseStoreExt};
 use fuser::FUSE_ROOT_ID;
 
 fn empty_in_memory_bridgefs() -> BridgeFS<InMemoryHashPointerReference, InMemoryContentStore> {
