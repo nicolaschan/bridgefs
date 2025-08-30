@@ -1,3 +1,4 @@
+pub mod bridgefs;
 pub mod content_store;
 pub mod data_block;
 pub mod file_record;

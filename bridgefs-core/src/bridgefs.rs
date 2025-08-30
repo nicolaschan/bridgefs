@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use bridgefs_core::{
+use crate::{
     content_store::{ContentStore, ParsingContentStoreExt},
     data_block::DataBlock,
     file_record::{CommonAttrs, DirectoryRecord, FileRecord, Record},

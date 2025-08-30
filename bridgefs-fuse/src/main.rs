@@ -1,7 +1,7 @@
 use baybridge::client::Actions;
 use baybridge::configuration::Configuration;
+use bridgefs_fuse::BridgeFSFuse;
 use bridgefs_fuse::baybridge_adapter::BaybridgeAdapter;
-use bridgefs_fuse::bridgefs::BridgeFS;
 use fuser::MountOption;
 use std::env;
 
@@ -19,7 +19,7 @@ fn main() {
     let config = Configuration::default();
     let actions = Actions::new(config);
     let adapter = BaybridgeAdapter::new(actions);
-    let bridgefs = BridgeFS::from_baybridge(&adapter);
+    let bridgefs = BridgeFSFuse::from_baybridge(&adapter);
 
     // Mount the filesystem
     if let Err(e) = fuser::mount2(bridgefs, &mountpoint, &options) {

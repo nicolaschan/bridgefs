@@ -4,6 +4,7 @@ use std::{
 };
 
 use bridgefs_core::{
+    bridgefs::BridgeFS,
     content_store::{ContentStore, ParsingContentStoreExt},
     file_record::{CommonAttrs, Record},
     hash_pointer::TypedHashPointerReference,
@@ -18,32 +19,35 @@ use libc::{ENOENT, ENOTDIR, ENOTEMPTY};
 
 use crate::{
     baybridge_adapter::{BaybridgeAdapter, BaybridgeContentStore, BaybridgeHashPointerReference},
-    bridgefs::BridgeFS,
     fuse_file_ext::{FuseErrorExt, FuseFileExt, FuseFileResponseExt},
     fuse_store_ext::FuseStoreExt,
 };
 
 pub mod baybridge_adapter;
-pub mod bridgefs;
 mod fuse_file_ext;
 pub mod fuse_store_ext;
 
 const TTL: Duration = Duration::ZERO;
 
-impl<'a> BridgeFS<BaybridgeHashPointerReference<'a>, BaybridgeContentStore<'a>> {
+pub struct BridgeFSFuse<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>(
+    BridgeFS<IndexHashT, StoreT>,
+);
+
+impl<'a> BridgeFSFuse<BaybridgeHashPointerReference<'a>, BaybridgeContentStore<'a>> {
     pub fn from_baybridge(adapter: &'a BaybridgeAdapter) -> Self {
         let mut store = adapter.content_store();
         let empty_root_dir = store.empty_root_dir();
         let index_hash = adapter.hash_pointer_reference(empty_root_dir);
-        BridgeFS::new(index_hash, store)
+        let bridgefs = BridgeFS::new(index_hash, store);
+        BridgeFSFuse(bridgefs)
     }
 }
 
 impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesystem
-    for BridgeFS<IndexHashT, StoreT>
+    for BridgeFSFuse<IndexHashT, StoreT>
 {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        let response = self.lookup_record_by_name(parent.into(), &name.into());
+        let response = self.0.lookup_record_by_name(parent.into(), &name.into());
         match response {
             Ok(record) => {
                 reply.entry(&TTL, &record.attrs(), 0);
@@ -55,7 +59,7 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
     }
 
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
-        let response = self.lookup_record_by_inode(ino.into());
+        let response = self.0.lookup_record_by_inode(ino.into());
         match response {
             Ok(record) => {
                 reply.attr(&TTL, &record.attrs());
@@ -77,7 +81,10 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
         _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
-        match self.read_file_data_by_inode(ino.into(), offset as usize, size as usize) {
+        match self
+            .0
+            .read_file_data_by_inode(ino.into(), offset as usize, size as usize)
+        {
             Ok(response) => {
                 reply.data(&response.datablock.data);
             }
@@ -96,7 +103,7 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        let entries = match self.list_directory_by_inode(ino.into()) {
+        let entries = match self.0.list_directory_by_inode(ino.into()) {
             Ok(entries) => entries,
             Err(e) => {
                 reply.error(e.to_errno());
@@ -130,7 +137,7 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
         _lock_owner: Option<u64>,
         reply: ReplyWrite,
     ) {
-        match self.write_to_file(ino.into(), offset as usize, data) {
+        match self.0.write_to_file(ino.into(), offset as usize, data) {
             Ok(written) => {
                 reply.written(written as u32);
             }
@@ -155,7 +162,7 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
             .uid(req.uid())
             .gid(req.gid())
             .build();
-        let response = self.create_file(parent.into(), name.into(), attributes);
+        let response = self.0.create_file(parent.into(), name.into(), attributes);
         match response {
             Ok(file) => {
                 reply.created(&TTL, &file.attrs(), 0, 0, 0);
@@ -184,13 +191,13 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
         _flags: Option<u32>,
         reply: ReplyAttr,
     ) {
-        let mut index = self.get_index();
+        let mut index = self.0.get_index();
         let child_hash = index.get_child_by_inode(&ino.into());
         if child_hash.is_none() {
             reply.error(ENOENT);
             return;
         }
-        let mut file_record: Record = self.store.get_parsed(child_hash.unwrap());
+        let mut file_record: Record = self.0.store.get_parsed(child_hash.unwrap());
         if let Some(mode) = mode {
             file_record.mut_attrs().perm = mode as u16;
         }
@@ -217,9 +224,11 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
             file_record.mut_attrs().crtime = crtime;
         }
 
-        let new_file_record_hash = self.store.add_parsed(&file_record);
+        let new_file_record_hash = self.0.store.add_parsed(&file_record);
         index.update_child(ino.into(), new_file_record_hash);
-        self.index_hash.set_typed(&self.store.add_parsed(&index));
+        self.0
+            .index_hash
+            .set_typed(&self.0.store.add_parsed(&index));
 
         let attr = match file_record {
             Record::File(file_record) => file_record.attrs(ino.into()),
@@ -242,7 +251,9 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
             .uid(req.uid())
             .gid(req.gid())
             .build();
-        let response = self.create_directory(parent.into(), name.into(), attributes);
+        let response = self
+            .0
+            .create_directory(parent.into(), name.into(), attributes);
         match response {
             Ok(directory) => {
                 reply.entry(&TTL, &directory.attrs(), 0);
@@ -254,10 +265,10 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
     }
 
     fn unlink(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        let mut index = self.get_index();
+        let mut index = self.0.get_index();
 
         let parent_inode: INode = parent.into();
-        let parent = self.get_record_by_inode(parent_inode);
+        let parent = self.0.get_record_by_inode(parent_inode);
         if parent.is_none() {
             reply.error(ENOENT);
             return;
@@ -271,15 +282,17 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
         };
 
         parent.remove(&name.into());
-        let parent_hash = self.store.add_parsed(&Record::Directory(parent));
+        let parent_hash = self.0.store.add_parsed(&Record::Directory(parent));
         index.update_child(parent_inode, parent_hash);
-        self.index_hash.set_typed(&self.store.add_parsed(&index));
+        self.0
+            .index_hash
+            .set_typed(&self.0.store.add_parsed(&index));
         reply.ok();
     }
 
     fn rmdir(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         let parent_inode = parent.into();
-        let parent = self.get_record_by_inode(parent_inode);
+        let parent = self.0.get_record_by_inode(parent_inode);
         if parent.is_none() {
             reply.error(ENOENT);
             return;
@@ -299,7 +312,7 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
                 return;
             }
         };
-        let target_record = self.get_record_by_inode(target_inode);
+        let target_record = self.0.get_record_by_inode(target_inode);
         if target_record.is_none() {
             reply.error(ENOENT);
             return;
@@ -316,11 +329,13 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
             return;
         }
 
-        let mut index = self.get_index();
+        let mut index = self.0.get_index();
         parent.remove(&name.into());
-        let parent_hash = self.store.add_parsed(&Record::Directory(parent));
+        let parent_hash = self.0.store.add_parsed(&Record::Directory(parent));
         index.update_child(parent_inode, parent_hash);
-        self.index_hash.set_typed(&self.store.add_parsed(&index));
+        self.0
+            .index_hash
+            .set_typed(&self.0.store.add_parsed(&index));
         reply.ok();
     }
 }

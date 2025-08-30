@@ -1,10 +1,10 @@
 use std::ffi::OsStr;
 
 use bridgefs_core::{
-    content_store::InMemoryContentStore, file_record::CommonAttrs,
+    bridgefs::BridgeFS, content_store::InMemoryContentStore, file_record::CommonAttrs,
     hash_pointer::InMemoryHashPointerReference, response::FileOperationError,
 };
-use bridgefs_fuse::{bridgefs::BridgeFS, fuse_store_ext::FuseStoreExt};
+use bridgefs_fuse::fuse_store_ext::FuseStoreExt;
 use fuser::FUSE_ROOT_ID;
 
 static EMPTY_FILENAME: &str = "empty_file";
