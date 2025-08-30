@@ -1,8 +1,20 @@
 use bridgefs_core::{
     file_record::{CommonAttrs, DirectoryRecord, FileRecord, Record},
     inode::INode,
+    response::{FileOperationError, INodeResponse},
 };
 use fuser::{FileAttr, FileType};
+use libc::c_int;
+
+pub trait FuseFileResponseExt {
+    fn attrs(&self) -> FileAttr;
+}
+
+impl FuseFileResponseExt for INodeResponse<Record> {
+    fn attrs(&self) -> FileAttr {
+        self.inner.attrs(self.inode)
+    }
+}
 
 pub trait FuseFileExt {
     fn attrs(&self, inode: INode) -> FileAttr;
@@ -67,5 +79,19 @@ fn to_file_attrs(common_attrs: &CommonAttrs, size: u64, kind: FileType, inode: I
         rdev: 0,
         flags: 0,
         blksize: 512,
+    }
+}
+
+pub trait FuseErrorExt {
+    fn to_errno(&self) -> c_int;
+}
+
+impl FuseErrorExt for FileOperationError {
+    fn to_errno(&self) -> c_int {
+        match self {
+            FileOperationError::NotFound => libc::ENOENT,
+            FileOperationError::NotADirectory => libc::ENOTDIR,
+            FileOperationError::IsADirectory => libc::EISDIR,
+        }
     }
 }

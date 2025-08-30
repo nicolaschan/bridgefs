@@ -1,15 +1,13 @@
 use bridgefs_core::{
     content_store::{ContentStore, ParsingContentStoreExt},
-    file_record::Record,
+    file_record::{DirectoryRecord, FileRecord, Record},
     filename::Filename,
     hash_pointer::TypedHashPointerReference,
     index::Index,
     inode::INode,
+    response::{FileOperationError, INodeResponse},
 };
-use fuser::FileAttr;
 use libc::{ENOENT, ENOTDIR, c_int};
-
-use crate::fuse_file_ext::FuseFileExt;
 
 #[derive(Debug)]
 pub struct BridgeFS<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> {
@@ -70,23 +68,56 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
         Ok(inode)
     }
 
-    pub fn lookup_record(&mut self, parent: INode, name: &Filename) -> Result<FileAttr, c_int> {
-        let index = self.get_index();
-        let parent = self.get_record_by_inode(parent);
-        if parent.is_none() {
-            return Err(ENOENT);
+    pub fn lookup_record_by_inode(
+        &mut self,
+        inode: INode,
+    ) -> Result<INodeResponse<Record>, FileOperationError> {
+        let record = self.get_record_by_inode(inode);
+        if record.is_none() {
+            return Err(FileOperationError::NotFound);
         }
-        let parent = match parent.unwrap() {
-            Record::Directory(dir) => dir,
-            _ => return Err(ENOTDIR),
-        };
+        Ok(INodeResponse {
+            inner: record.unwrap(),
+            inode,
+        })
+    }
 
-        let file_data = index.get_child_by_name(&parent, name);
+    pub fn lookup_file_by_inode(
+        &mut self,
+        inode: INode,
+    ) -> Result<INodeResponse<FileRecord>, FileOperationError> {
+        let record = self.lookup_record_by_inode(inode)?;
+        match record.inner {
+            Record::File(file) => Ok(INodeResponse::new(file, record.inode)),
+            _ => Err(FileOperationError::IsADirectory),
+        }
+    }
+
+    fn lookup_directory_by_inode(
+        &mut self,
+        inode: INode,
+    ) -> Result<INodeResponse<DirectoryRecord>, FileOperationError> {
+        let record = self.lookup_record_by_inode(inode)?;
+        match record.inner {
+            Record::Directory(directory) => Ok(INodeResponse::new(directory, record.inode)),
+            _ => Err(FileOperationError::NotADirectory),
+        }
+    }
+
+    pub fn lookup_record_by_name(
+        &mut self,
+        parent: INode,
+        name: &Filename,
+    ) -> Result<INodeResponse<Record>, FileOperationError> {
+        let index = self.get_index();
+        let parent = self.lookup_directory_by_inode(parent)?;
+
+        let file_data = index.get_child_by_name(&parent.inner, name);
         if file_data.is_none() {
-            return Err(ENOENT);
+            return Err(FileOperationError::NotFound);
         }
         let file_data = file_data.unwrap();
-        let record: Record = self.store.get_parsed(&file_data.hash);
-        Ok(record.attrs(file_data.inode))
+        let record = self.store.get_parsed(&file_data.hash);
+        Ok(INodeResponse::new(record, file_data.inode))
     }
 }

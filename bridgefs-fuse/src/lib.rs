@@ -20,7 +20,7 @@ use libc::{EISDIR, ENOENT, ENOTDIR, ENOTEMPTY};
 use crate::{
     baybridge_adapter::{BaybridgeAdapter, BaybridgeContentStore, BaybridgeHashPointerReference},
     bridgefs::BridgeFS,
-    fuse_file_ext::FuseFileExt,
+    fuse_file_ext::{FuseErrorExt, FuseFileExt, FuseFileResponseExt},
     fuse_store_ext::FuseStoreExt,
 };
 
@@ -44,28 +44,27 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
     for BridgeFS<IndexHashT, StoreT>
 {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        let attrs = self.lookup_record(parent.into(), &name.into());
-        match attrs {
-            Ok(attrs) => {
-                reply.entry(&TTL, &attrs, 0);
+        let response = self.lookup_record_by_name(parent.into(), &name.into());
+        match response {
+            Ok(record) => {
+                reply.entry(&TTL, &record.attrs(), 0);
             }
             Err(e) => {
-                reply.error(e);
+                reply.error(e.to_errno());
             }
         }
     }
 
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
-        // TODO: Implement getting file attributes
-        // This returns metadata about a file or directory
-        let index = self.get_index();
-        let child_hash = index.get_child_by_inode(&ino.into());
-        if child_hash.is_none() {
-            reply.error(ENOENT);
-            return;
+        let response = self.lookup_record_by_inode(ino.into());
+        match response {
+            Ok(record) => {
+                reply.attr(&TTL, &record.attrs());
+            }
+            Err(e) => {
+                reply.error(e.to_errno());
+            }
         }
-        let record: Record = self.store.get_parsed(child_hash.unwrap());
-        reply.attr(&TTL, &record.attrs(ino.into()));
     }
 
     fn read(
@@ -79,8 +78,6 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
         _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
-        // TODO: Implement file reading
-        // This is called when a file's contents need to be read
         let index = self.get_index();
         let file_record = index.get_child_by_inode(&ino.into());
         if file_record.is_none() {
@@ -95,7 +92,6 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
             }
         };
         let data = self.store.get_parsed(&file_record.content_hash);
-        dbg!(&data);
 
         let data_len = data.len() as i64;
         let start = offset as usize;

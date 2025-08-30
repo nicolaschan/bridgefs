@@ -6,3 +6,4 @@ pub mod hash_pointer;
 pub mod index;
 pub mod inode;
 pub mod manifest;
+pub mod response;
