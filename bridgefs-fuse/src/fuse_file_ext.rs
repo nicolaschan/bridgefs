@@ -10,7 +10,7 @@ pub trait FuseFileResponseExt {
     fn attrs(&self) -> FileAttr;
 }
 
-impl FuseFileResponseExt for INodeResponse<Record> {
+impl<T: FuseFileExt> FuseFileResponseExt for INodeResponse<T> {
     fn attrs(&self) -> FileAttr {
         self.inner.attrs(self.inode)
     }

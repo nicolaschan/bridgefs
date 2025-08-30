@@ -1,17 +1,31 @@
 use std::ffi::OsStr;
 
 use bridgefs_core::{
-    content_store::InMemoryContentStore, hash_pointer::InMemoryHashPointerReference,
-    response::FileOperationError,
+    content_store::InMemoryContentStore, file_record::CommonAttrs,
+    hash_pointer::InMemoryHashPointerReference, response::FileOperationError,
 };
 use bridgefs_fuse::{bridgefs::BridgeFS, fuse_store_ext::FuseStoreExt};
 use fuser::FUSE_ROOT_ID;
+
+static EMPTY_FILENAME: &str = "file";
 
 fn empty_in_memory_bridgefs() -> BridgeFS<InMemoryHashPointerReference, InMemoryContentStore> {
     let mut store = InMemoryContentStore::default();
     let initial_index_hash = store.empty_root_dir();
     let pointer = InMemoryHashPointerReference::new(initial_index_hash.into());
     BridgeFS::new(pointer, store)
+}
+
+fn in_memory_bridgefs() -> BridgeFS<InMemoryHashPointerReference, InMemoryContentStore> {
+    let mut bridgefs = empty_in_memory_bridgefs();
+    bridgefs
+        .create_file(
+            FUSE_ROOT_ID.into(),
+            EMPTY_FILENAME.into(),
+            CommonAttrs::default(),
+        )
+        .expect("Failed to create file");
+    bridgefs
 }
 
 #[test]
@@ -41,4 +55,33 @@ fn test_lookup_by_inode_missing_file() {
 
     assert!(record.is_err());
     assert_eq!(record.unwrap_err(), FileOperationError::NotFound);
+}
+
+#[test]
+fn test_read_by_inode_missing_file() {
+    let mut bridgefs = empty_in_memory_bridgefs();
+    let read_result = bridgefs.read_file_data_by_inode(42.into(), 0, 1024);
+
+    assert!(read_result.is_err());
+    assert_eq!(read_result.unwrap_err(), FileOperationError::NotFound);
+}
+
+#[test]
+fn test_lookup_by_name_existing_file() {
+    let mut bridgefs = in_memory_bridgefs();
+    let record = bridgefs.lookup_record_by_name(FUSE_ROOT_ID.into(), &EMPTY_FILENAME.into());
+    assert!(record.is_ok());
+}
+
+#[test]
+fn test_read_by_inode_empty_file() {
+    let mut bridgefs = in_memory_bridgefs();
+    let record = bridgefs.lookup_record_by_name(FUSE_ROOT_ID.into(), &EMPTY_FILENAME.into());
+    assert!(record.is_ok());
+    let inode = record.unwrap().inode;
+
+    let read_result = bridgefs.read_file_data_by_inode(inode, 0, 1024);
+    assert!(read_result.is_ok());
+    let data = read_result.unwrap();
+    assert!(data.is_empty());
 }

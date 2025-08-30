@@ -20,3 +20,11 @@ impl From<Filename> for std::ffi::OsString {
         std::ffi::OsString::from_vec(filename.name)
     }
 }
+
+impl From<&str> for Filename {
+    fn from(s: &str) -> Self {
+        Filename {
+            name: s.as_bytes().to_vec(),
+        }
+    }
+}

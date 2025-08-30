@@ -1,6 +1,7 @@
 use bridgefs_core::{
     content_store::{ContentStore, ParsingContentStoreExt},
-    file_record::{DirectoryRecord, FileRecord, Record},
+    data_block::DataBlock,
+    file_record::{CommonAttrs, DirectoryRecord, FileRecord, Record},
     filename::Filename,
     hash_pointer::TypedHashPointerReference,
     index::Index,
@@ -46,16 +47,16 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
         parent_inode: INode,
         name: Filename,
         record: Record,
-    ) -> Result<INode, c_int> {
+    ) -> Result<INode, FileOperationError> {
         let mut index = self.get_index();
 
         let parent = self.get_record_by_inode(parent_inode);
         if parent.is_none() {
-            return Err(ENOENT);
+            return Err(FileOperationError::NotFound);
         }
         let mut parent = match parent.unwrap() {
             Record::Directory(dir) => dir,
-            _ => return Err(ENOTDIR),
+            _ => return Err(FileOperationError::NotADirectory),
         };
 
         let record_hash = self.store.add_parsed(&record);
@@ -119,5 +120,60 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
         let file_data = file_data.unwrap();
         let record = self.store.get_parsed(&file_data.hash);
         Ok(INodeResponse::new(record, file_data.inode))
+    }
+
+    pub fn read_file_data_by_inode(
+        &mut self,
+        inode: INode,
+        offset: usize,
+        size: usize,
+    ) -> Result<Vec<u8>, FileOperationError> {
+        let file_record = self.lookup_file_by_inode(inode)?;
+        let data = self.store.get_parsed(&file_record.inner.content_hash);
+
+        let data_len = data.len();
+        let start = offset;
+        let end = std::cmp::min(start + size, data_len);
+        if start >= data_len {
+            return Ok(vec![]);
+        } else {
+            return Ok(data.data[start..end].to_vec());
+        }
+    }
+
+    pub fn create_file(
+        &mut self,
+        parent: INode,
+        name: Filename,
+        attributes: CommonAttrs,
+    ) -> Result<INodeResponse<FileRecord>, FileOperationError> {
+        let empty_data = DataBlock::default();
+        let content_hash = self.store.add_parsed(&empty_data);
+        let file_record = FileRecord::builder()
+            .content_hash(content_hash)
+            .common_attrs(attributes)
+            .size(empty_data.len() as u64)
+            .build();
+        let inode = self.add_child(
+            parent.into(),
+            name.into(),
+            Record::File(file_record.clone()),
+        )?;
+        Ok(INodeResponse::new(file_record, inode))
+    }
+
+    pub fn create_directory(
+        &mut self,
+        parent: INode,
+        name: Filename,
+        attributes: CommonAttrs,
+    ) -> Result<INodeResponse<DirectoryRecord>, FileOperationError> {
+        let directory_record = DirectoryRecord::builder().common_attrs(attributes).build();
+        let inode = self.add_child(
+            parent.into(),
+            name.into(),
+            Record::Directory(directory_record.clone()),
+        )?;
+        Ok(INodeResponse::new(directory_record, inode))
     }
 }

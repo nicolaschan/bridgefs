@@ -78,29 +78,15 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
         _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
-        let index = self.get_index();
-        let file_record = index.get_child_by_inode(&ino.into());
-        if file_record.is_none() {
-            reply.error(ENOENT);
-            return;
-        }
-        let file_record: FileRecord = match self.store.get_parsed(file_record.unwrap()) {
-            Record::File(file_record) => file_record,
-            _ => {
-                reply.error(EISDIR);
+        match self.read_file_data_by_inode(ino.into(), offset as usize, size as usize) {
+            Ok(data) => {
+                reply.data(&data);
+            }
+            Err(e) => {
+                reply.error(e.to_errno());
                 return;
             }
         };
-        let data = self.store.get_parsed(&file_record.content_hash);
-
-        let data_len = data.len() as i64;
-        let start = offset as usize;
-        let end = std::cmp::min(start + size as usize, data_len as usize);
-        if start >= data_len as usize {
-            reply.data(&[]);
-        } else {
-            reply.data(&data.data[start..end]);
-        }
     }
 
     fn readdir(
@@ -212,33 +198,20 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
         _flags: i32,
         reply: ReplyCreate,
     ) {
-        let empty_data = DataBlock::default();
-        let content_hash = self.store.add_parsed(&empty_data);
-        let common_attrs = CommonAttrs::builder()
+        let attributes = CommonAttrs::builder()
             .perm(get_permissions(mode, umask))
             .uid(req.uid())
             .gid(req.gid())
             .build();
-        let file_record = FileRecord::builder()
-            .content_hash(content_hash)
-            .common_attrs(common_attrs)
-            .size(empty_data.len() as u64)
-            .build();
-
-        let inode = match self.add_child(
-            parent.into(),
-            name.into(),
-            Record::File(file_record.clone()),
-        ) {
-            Ok(inode) => inode,
-            Err(e) => {
-                reply.error(e);
-                return;
+        let response = self.create_file(parent.into(), name.into(), attributes);
+        match response {
+            Ok(file) => {
+                reply.created(&TTL, &file.attrs(), 0, 0, 0);
             }
-        };
-
-        let attr = file_record.attrs(inode);
-        reply.created(&TTL, &attr, 0, 0, 0);
+            Err(e) => {
+                reply.error(e.to_errno());
+            }
+        }
     }
 
     fn setattr(
@@ -312,28 +285,20 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
         umask: u32,
         reply: ReplyEntry,
     ) {
-        let common_attrs = CommonAttrs::builder()
+        let attributes = CommonAttrs::builder()
             .perm(get_permissions(mode, umask))
             .uid(req.uid())
             .gid(req.gid())
             .build();
-        let directory_record = DirectoryRecord::builder()
-            .common_attrs(common_attrs)
-            .build();
-
-        let inode = match self.add_child(
-            parent.into(),
-            name.into(),
-            Record::Directory(directory_record.clone()),
-        ) {
-            Ok(inode) => inode,
-            Err(e) => {
-                reply.error(e);
-                return;
+        let response = self.create_directory(parent.into(), name.into(), attributes);
+        match response {
+            Ok(directory) => {
+                reply.entry(&TTL, &directory.attrs(), 0);
             }
-        };
-        let attr = directory_record.attrs(inode);
-        reply.entry(&TTL, &attr, 0);
+            Err(e) => {
+                reply.error(e.to_errno());
+            }
+        }
     }
 
     fn unlink(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
