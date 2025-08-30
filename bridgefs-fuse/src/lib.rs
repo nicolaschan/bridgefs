@@ -5,8 +5,7 @@ use std::{
 
 use bridgefs_core::{
     content_store::{ContentStore, ParsingContentStoreExt},
-    data_block::DataBlock,
-    file_record::{CommonAttrs, DirectoryRecord, FileRecord, Record},
+    file_record::{CommonAttrs, Record},
     hash_pointer::TypedHashPointerReference,
     index::Index,
     inode::INode,
@@ -15,7 +14,7 @@ use fuser::{
     FUSE_ROOT_ID, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory,
     ReplyEmpty, ReplyEntry, ReplyWrite, Request, TimeOrNow,
 };
-use libc::{EISDIR, ENOENT, ENOTDIR, ENOTEMPTY};
+use libc::{ENOENT, ENOTDIR, ENOTEMPTY};
 
 use crate::{
     baybridge_adapter::{BaybridgeAdapter, BaybridgeContentStore, BaybridgeHashPointerReference},
@@ -79,8 +78,8 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
         reply: ReplyData,
     ) {
         match self.read_file_data_by_inode(ino.into(), offset as usize, size as usize) {
-            Ok(data) => {
-                reply.data(&data);
+            Ok(response) => {
+                reply.data(&response.datablock.data);
             }
             Err(e) => {
                 reply.error(e.to_errno());
@@ -149,43 +148,14 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
         _lock_owner: Option<u64>,
         reply: ReplyWrite,
     ) {
-        let mut index = self.get_index();
-        let file_record = index.get_child_by_inode(&ino.into());
-        if file_record.is_none() {
-            reply.error(ENOENT);
-            return;
-        }
-
-        let mut file_record: FileRecord = match self.store.get_parsed(file_record.unwrap()) {
-            Record::File(file_record) => file_record,
-            _ => {
-                reply.error(EISDIR);
-                return;
+        match self.write_to_file(ino.into(), offset as usize, data) {
+            Ok(written) => {
+                reply.written(written as u32);
             }
-        };
-
-        let mut existing_data = self.store.get_parsed(&file_record.content_hash);
-        let offset = offset as usize;
-        if offset > existing_data.len() {
-            existing_data.data.resize(offset, 0);
+            Err(e) => {
+                reply.error(e.to_errno());
+            }
         }
-        if offset + data.len() > existing_data.len() {
-            existing_data.data.resize(offset + data.len(), 0);
-        }
-        existing_data.data[offset..offset + data.len()].copy_from_slice(data);
-
-        file_record.content_hash = self.store.add_parsed(&existing_data);
-        file_record.size = existing_data.len() as u64;
-        file_record.common_attrs.mtime = SystemTime::now();
-        file_record.common_attrs.ctime = SystemTime::now();
-
-        let record = Record::File(file_record);
-        let file_record_hash = self.store.add_parsed(&record);
-        index.update_child(ino.into(), file_record_hash);
-        self.index_hash.set_typed(&self.store.add_parsed(&index));
-
-        dbg!(record);
-        reply.written(data.len() as u32);
     }
 
     fn create(

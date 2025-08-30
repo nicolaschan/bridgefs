@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use bridgefs_core::{
     content_store::{ContentStore, ParsingContentStoreExt},
     data_block::DataBlock,
@@ -6,9 +8,8 @@ use bridgefs_core::{
     hash_pointer::TypedHashPointerReference,
     index::Index,
     inode::INode,
-    response::{FileOperationError, INodeResponse},
+    response::{FileOperationError, INodeResponse, ReadFileResponse},
 };
-use libc::{ENOENT, ENOTDIR, c_int};
 
 #[derive(Debug)]
 pub struct BridgeFS<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> {
@@ -69,6 +70,13 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
         Ok(inode)
     }
 
+    fn update_index(&mut self, inode: INode, record: Record) {
+        let mut index = self.get_index();
+        let record_hash = self.store.add_parsed(&record);
+        index.update_child(inode, record_hash);
+        self.index_hash.set_typed(&self.store.add_parsed(&index));
+    }
+
     pub fn lookup_record_by_inode(
         &mut self,
         inode: INode,
@@ -127,17 +135,25 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
         inode: INode,
         offset: usize,
         size: usize,
-    ) -> Result<Vec<u8>, FileOperationError> {
-        let file_record = self.lookup_file_by_inode(inode)?;
-        let data = self.store.get_parsed(&file_record.inner.content_hash);
+    ) -> Result<ReadFileResponse, FileOperationError> {
+        let file = self.lookup_file_by_inode(inode)?;
+        let data = self.store.get_parsed(&file.inner.content_hash);
 
         let data_len = data.len();
         let start = offset;
         let end = std::cmp::min(start + size, data_len);
         if start >= data_len {
-            return Ok(vec![]);
+            return Ok(ReadFileResponse {
+                file,
+                datablock: DataBlock::default(),
+            });
         } else {
-            return Ok(data.data[start..end].to_vec());
+            return Ok(ReadFileResponse {
+                file,
+                datablock: DataBlock {
+                    data: data.data[start..end].to_vec(),
+                },
+            });
         }
     }
 
@@ -175,5 +191,32 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
             Record::Directory(directory_record.clone()),
         )?;
         Ok(INodeResponse::new(directory_record, inode))
+    }
+
+    pub fn write_to_file(
+        &mut self,
+        inode: INode,
+        offset: usize,
+        data: &[u8],
+    ) -> Result<usize, FileOperationError> {
+        // TODO: support sparse files and writing without needing to read existing data
+        let mut existing_data = self.read_file_data_by_inode(inode, 0, usize::MAX)?;
+        let offset = offset;
+        if offset > existing_data.datablock.len() {
+            existing_data.datablock.data.resize(offset, 0);
+        }
+        if offset + data.len() > existing_data.datablock.len() {
+            existing_data.datablock.data.resize(offset + data.len(), 0);
+        }
+        existing_data.datablock.data[offset..offset + data.len()].copy_from_slice(data);
+
+        existing_data.file.inner.content_hash = self.store.add_parsed(&existing_data.datablock);
+        existing_data.file.inner.size = existing_data.datablock.len() as u64;
+        existing_data.file.inner.common_attrs.mtime = SystemTime::now();
+        existing_data.file.inner.common_attrs.ctime = SystemTime::now();
+
+        let new_record = Record::File(existing_data.file.inner);
+        self.update_index(inode.into(), new_record);
+        Ok(data.len())
     }
 }

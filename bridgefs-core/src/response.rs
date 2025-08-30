@@ -1,4 +1,4 @@
-use crate::inode::INode;
+use crate::{data_block::DataBlock, file_record::FileRecord, inode::INode};
 
 #[derive(Debug)]
 pub struct INodeResponse<T> {
@@ -17,4 +17,10 @@ pub enum FileOperationError {
     NotFound,
     NotADirectory,
     IsADirectory,
+}
+
+#[derive(Debug)]
+pub struct ReadFileResponse {
+    pub file: INodeResponse<FileRecord>,
+    pub datablock: DataBlock,
 }
