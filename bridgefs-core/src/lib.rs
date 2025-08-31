@@ -1,5 +1,6 @@
 pub mod bridgefs;
 pub mod content_store;
+mod counting_store;
 pub mod data_block;
 pub mod file_record;
 pub mod filename;

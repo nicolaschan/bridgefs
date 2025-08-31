@@ -1,4 +1,10 @@
-use crate::{file_record::Record, hash_pointer::TypedHashPointer, inode::INode};
+use crate::{
+    content_store::ContentStore,
+    counting_store::{CountingStore, HasReferences},
+    file_record::Record,
+    hash_pointer::TypedHashPointer,
+    inode::INode,
+};
 use std::collections::HashMap;
 
 use bincode::{Decode, Encode};
@@ -34,5 +40,11 @@ impl INodeIndex {
 
     pub fn lookup_inode(&self, inode: &INode) -> Option<&TypedHashPointer<Record>> {
         self.inode_mapping.get(inode)
+    }
+}
+
+impl<StoreT: ContentStore> HasReferences<StoreT> for INodeIndex {
+    fn delete_references(&self, _store: &mut CountingStore<StoreT>) {
+        // TODO: should we delete references?
     }
 }

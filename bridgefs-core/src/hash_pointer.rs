@@ -44,10 +44,19 @@ impl Debug for HashPointer {
     }
 }
 
-#[derive(Encode, Decode, Hash, PartialEq, PartialOrd, Ord, Eq, Clone, Debug)]
+#[derive(Encode, Decode, Hash, PartialEq, PartialOrd, Ord, Eq, Debug)]
 pub struct TypedHashPointer<T> {
     hash_pointer: HashPointer,
     _marker: PhantomData<T>,
+}
+
+impl<T> Clone for TypedHashPointer<T> {
+    fn clone(&self) -> Self {
+        Self {
+            hash_pointer: self.hash_pointer.clone(),
+            _marker: self._marker,
+        }
+    }
 }
 
 impl<T> TypedHashPointer<T> {

@@ -1,13 +1,15 @@
 use std::time::SystemTime;
 
 use crate::{
-    content_store::{ContentStore, ParsingContentStoreExt},
+    content_store::ContentStore,
+    counting_store::CountingStore,
     data_block::DataBlock,
     file_record::{CommonAttrs, DirectoryRecord, FileRecord, Record},
     filename::Filename,
-    hash_pointer::TypedHashPointerReference,
+    hash_pointer::{TypedHashPointer, TypedHashPointerReference},
     index::INodeIndex,
     inode::INode,
+    manifest::Manifest,
     response::{
         FileOperationError, INodeResponse, ListDirectoryEntry, ListDirectoryResponse,
         ReadFileResponse,
@@ -17,13 +19,14 @@ use crate::{
 #[derive(Debug)]
 pub struct BridgeFS<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore> {
     index_hash: IndexHashT,
-    store: StoreT,
+    store: CountingStore<StoreT>,
 }
 
 impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
     BridgeFS<IndexHashT, StoreT>
 {
     pub fn new(index_hash: IndexHashT, store: StoreT) -> Self {
+        let store = CountingStore::new(store, Manifest::default());
         BridgeFS { index_hash, store }
     }
 }
@@ -31,12 +34,14 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
 impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
     BridgeFS<IndexHashT, StoreT>
 {
-    fn get_index(&mut self) -> INodeIndex {
-        self.store.get_parsed(&self.index_hash.get_typed())
+    fn get_index(&mut self) -> (TypedHashPointer<INodeIndex>, INodeIndex) {
+        let index_hash = self.index_hash.get_typed();
+        let inode_index = self.store.get_parsed(&index_hash);
+        (index_hash, inode_index)
     }
 
     fn get_record_by_inode(&mut self, inode: INode) -> Option<Record> {
-        let index = self.get_index();
+        let (_, index) = self.get_index();
         let record_hash = index.lookup_inode(&inode)?;
         Some(self.store.get_parsed(record_hash))
     }
@@ -47,10 +52,11 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         filename: Filename,
         record: Record,
     ) -> Result<INode, FileOperationError> {
-        let mut index = self.get_index();
-        let record_hash = self.store.add_parsed(&record);
+        let (prev_index_hash, mut index) = self.get_index();
+        let record_hash = self.store.store_new_content(&record);
         let inode = index.insert_new_inode(record_hash);
-        self.index_hash.set_typed(&self.store.add_parsed(&index));
+        self.index_hash
+            .set_typed(&self.store.replace_content(&prev_index_hash, &index));
 
         let mut parent = self.lookup_directory_by_inode(parent_inode)?;
         parent.inner.insert(filename, inode);
@@ -59,10 +65,15 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
     }
 
     fn update_index(&mut self, inode: INode, record: Record) {
-        let mut index = self.get_index();
-        let record_hash = self.store.add_parsed(&record);
-        index.update_inode(inode, record_hash);
-        self.index_hash.set_typed(&self.store.add_parsed(&index));
+        let (prev_index_hash, mut index) = self.get_index();
+        let prev_inode_hash = index
+            .lookup_inode(&inode)
+            .expect("INode should exist prior to update");
+        let new_inode_hash = self.store.replace_content(prev_inode_hash, &record);
+
+        index.update_inode(inode, new_inode_hash);
+        let new_index_hash = self.store.replace_content(&prev_index_hash, &index);
+        self.index_hash.set_typed(&new_index_hash);
     }
 
     pub fn lookup_record_by_inode(
@@ -170,7 +181,7 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         attributes: CommonAttrs,
     ) -> Result<INodeResponse<FileRecord>, FileOperationError> {
         let empty_data = DataBlock::default();
-        let content_hash = self.store.add_parsed(&empty_data);
+        let content_hash = self.store.store_new_content(&empty_data);
         let file_record = FileRecord::builder()
             .content_hash(content_hash)
             .common_attrs(attributes)
@@ -210,7 +221,8 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         }
         existing_data.datablock.data[offset..offset + data.len()].copy_from_slice(data);
 
-        existing_data.file.inner.content_hash = self.store.add_parsed(&existing_data.datablock);
+        existing_data.file.inner.content_hash =
+            self.store.store_new_content(&existing_data.datablock);
         existing_data.file.inner.size = existing_data.datablock.len() as u64;
         existing_data.file.inner.common_attrs.mtime = SystemTime::now();
         existing_data.file.inner.common_attrs.ctime = SystemTime::now();

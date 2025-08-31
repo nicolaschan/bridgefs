@@ -3,13 +3,31 @@ use std::{collections::HashMap, time::SystemTime};
 use bincode::{Decode, Encode};
 
 use crate::{
-    data_block::DataBlock, filename::Filename, hash_pointer::TypedHashPointer, inode::INode,
+    content_store::ContentStore,
+    counting_store::{CountingStore, HasReferences},
+    data_block::DataBlock,
+    filename::Filename,
+    hash_pointer::TypedHashPointer,
+    inode::INode,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode)]
 pub enum Record {
     File(FileRecord),
     Directory(DirectoryRecord),
+}
+
+impl<StoreT: ContentStore> HasReferences<StoreT> for Record {
+    fn delete_references(&self, store: &mut CountingStore<StoreT>) {
+        match self {
+            Record::File(file_record) => store.delete_content(&file_record.content_hash),
+            Record::Directory(_directory_record) => {
+                // Directory should already be empty when deleted with rmdir
+                // When contents, change, deletion of inodes is handled by the BridgeFS layer
+                // So there's nothing to do!
+            }
+        }
+    }
 }
 
 impl Record {
