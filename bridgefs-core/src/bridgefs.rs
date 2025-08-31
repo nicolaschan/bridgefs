@@ -107,11 +107,10 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         name: &Filename,
     ) -> Result<INodeResponse<Record>, FileOperationError> {
         let parent = self.lookup_directory_by_inode(parent)?;
-        let target_inode = parent.inner.get(name);
-        if target_inode.is_none() {
-            return Err(FileOperationError::NotFound);
+        match parent.inner.get(name) {
+            Some(&inode) => self.lookup_record_by_inode(inode),
+            None => Err(FileOperationError::NotFound),
         }
-        return self.lookup_record_by_inode(*target_inode.unwrap());
     }
 
     fn lookup_directory_by_name(
@@ -155,14 +154,13 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
                 file,
                 datablock: DataBlock::default(),
             });
-        } else {
-            return Ok(ReadFileResponse {
-                file,
-                datablock: DataBlock {
-                    data: data.data[start..end].to_vec(),
-                },
-            });
         }
+        Ok(ReadFileResponse {
+            file,
+            datablock: DataBlock {
+                data: data.data[start..end].to_vec(),
+            },
+        })
     }
 
     pub fn create_file(
@@ -178,11 +176,7 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
             .common_attrs(attributes)
             .size(empty_data.len() as u64)
             .build();
-        let inode = self.add_child(
-            parent.into(),
-            name.into(),
-            Record::File(file_record.clone()),
-        )?;
+        let inode = self.add_child(parent, name, Record::File(file_record.clone()))?;
         Ok(INodeResponse::new(file_record, inode))
     }
 
@@ -196,11 +190,7 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
             .common_attrs(attributes)
             .parent(parent)
             .build();
-        let inode = self.add_child(
-            parent.into(),
-            name.into(),
-            Record::Directory(directory_record.clone()),
-        )?;
+        let inode = self.add_child(parent, name, Record::Directory(directory_record.clone()))?;
         Ok(INodeResponse::new(directory_record, inode))
     }
 
@@ -212,7 +202,6 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
     ) -> Result<usize, FileOperationError> {
         // TODO: support sparse files and writing without needing to read existing data
         let mut existing_data = self.read_file_data_by_inode(inode, 0, usize::MAX)?;
-        let offset = offset;
         if offset > existing_data.datablock.len() {
             existing_data.datablock.data.resize(offset, 0);
         }
@@ -227,7 +216,7 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         existing_data.file.inner.common_attrs.ctime = SystemTime::now();
 
         let new_record = Record::File(existing_data.file.inner);
-        self.update_index(inode.into(), new_record);
+        self.update_index(inode, new_record);
         Ok(data.len())
     }
 
@@ -242,7 +231,7 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         for entry in directory.inner.list_children() {
             let record = self.lookup_record_by_inode(entry.inode)?;
             entries.push(ListDirectoryEntry {
-                name: entry.name.into(),
+                name: entry.name,
                 record,
             });
         }

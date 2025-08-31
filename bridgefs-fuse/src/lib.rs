@@ -85,7 +85,6 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore> Fi
             }
             Err(e) => {
                 reply.error(e.to_errno());
-                return;
             }
         };
     }
