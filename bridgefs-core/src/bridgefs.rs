@@ -6,7 +6,7 @@ use crate::{
     file_record::{CommonAttrs, DirectoryRecord, FileRecord, Record},
     filename::Filename,
     hash_pointer::TypedHashPointerReference,
-    index::Index,
+    index::INodeIndex,
     inode::INode,
     response::{
         FileOperationError, INodeResponse, ListDirectoryEntry, ListDirectoryResponse,
@@ -15,12 +15,12 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct BridgeFS<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> {
+pub struct BridgeFS<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore> {
     index_hash: IndexHashT,
     store: StoreT,
 }
 
-impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
+impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
     BridgeFS<IndexHashT, StoreT>
 {
     pub fn new(index_hash: IndexHashT, store: StoreT) -> Self {
@@ -28,50 +28,40 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
     }
 }
 
-impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
+impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
     BridgeFS<IndexHashT, StoreT>
 {
-    fn get_index(&mut self) -> Index {
+    fn get_index(&mut self) -> INodeIndex {
         self.store.get_parsed(&self.index_hash.get_typed())
     }
 
     fn get_record_by_inode(&mut self, inode: INode) -> Option<Record> {
         let index = self.get_index();
-        let record_hash = index.get_child_by_inode(&inode)?;
+        let record_hash = index.lookup_inode(&inode)?;
         Some(self.store.get_parsed(record_hash))
     }
 
     fn add_child(
         &mut self,
         parent_inode: INode,
-        name: Filename,
+        filename: Filename,
         record: Record,
     ) -> Result<INode, FileOperationError> {
         let mut index = self.get_index();
-
-        let parent = self.get_record_by_inode(parent_inode);
-        if parent.is_none() {
-            return Err(FileOperationError::NotFound);
-        }
-        let mut parent = match parent.unwrap() {
-            Record::Directory(dir) => dir,
-            _ => return Err(FileOperationError::NotADirectory),
-        };
-
         let record_hash = self.store.add_parsed(&record);
-        let inode = index.add_child(&mut parent, name, record_hash);
-
-        let parent_hash = self.store.add_parsed(&Record::Directory(parent));
-        index.update_child(parent_inode, parent_hash);
-
+        let inode = index.insert_new_inode(record_hash);
         self.index_hash.set_typed(&self.store.add_parsed(&index));
+
+        let mut parent = self.lookup_directory_by_inode(parent_inode)?;
+        parent.inner.insert(filename, inode);
+        self.update_index(parent.inode, parent.inner.into());
         Ok(inode)
     }
 
     fn update_index(&mut self, inode: INode, record: Record) {
         let mut index = self.get_index();
         let record_hash = self.store.add_parsed(&record);
-        index.update_child(inode, record_hash);
+        index.update_inode(inode, record_hash);
         self.index_hash.set_typed(&self.store.add_parsed(&index));
     }
 
@@ -116,16 +106,12 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
         parent: INode,
         name: &Filename,
     ) -> Result<INodeResponse<Record>, FileOperationError> {
-        let index = self.get_index();
         let parent = self.lookup_directory_by_inode(parent)?;
-
-        let file_data = index.get_child_by_name(&parent.inner, name);
-        if file_data.is_none() {
+        let target_inode = parent.inner.get(name);
+        if target_inode.is_none() {
             return Err(FileOperationError::NotFound);
         }
-        let file_data = file_data.unwrap();
-        let record = self.store.get_parsed(&file_data.hash);
-        Ok(INodeResponse::new(record, file_data.inode))
+        return self.lookup_record_by_inode(*target_inode.unwrap());
     }
 
     fn lookup_directory_by_name(

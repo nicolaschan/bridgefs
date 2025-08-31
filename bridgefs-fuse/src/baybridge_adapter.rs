@@ -5,7 +5,7 @@ use baybridge::{
 use bridgefs_core::{
     content_store::ContentStore,
     hash_pointer::{HashPointer, HashPointerReference, TypedHashPointer},
-    index::Index,
+    index::INodeIndex,
 };
 
 pub struct BaybridgeAdapter {
@@ -28,7 +28,7 @@ impl BaybridgeAdapter {
 
     pub fn hash_pointer_reference(
         &self,
-        default_value: TypedHashPointer<Index>,
+        default_value: TypedHashPointer<INodeIndex>,
     ) -> BaybridgeHashPointerReference<'_> {
         BaybridgeHashPointerReference {
             name: Name::new("filesystem3".to_string()),
@@ -44,7 +44,7 @@ pub struct BaybridgeContentStore<'a> {
 
 pub struct BaybridgeHashPointerReference<'a> {
     name: Name,
-    default_value: TypedHashPointer<Index>,
+    default_value: TypedHashPointer<INodeIndex>,
     adapter: &'a BaybridgeAdapter,
 }
 

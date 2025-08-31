@@ -5,7 +5,7 @@ use std::{
 
 use bridgefs_core::{
     bridgefs::BridgeFS, content_store::ContentStore, file_record::CommonAttrs,
-    hash_pointer::TypedHashPointerReference, index::Index,
+    hash_pointer::TypedHashPointerReference, index::INodeIndex,
 };
 use fuser::{
     Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
@@ -24,7 +24,7 @@ pub mod fuse_store_ext;
 
 const TTL: Duration = Duration::ZERO;
 
-pub struct BridgeFSFuse<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>(
+pub struct BridgeFSFuse<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>(
     BridgeFS<IndexHashT, StoreT>,
 );
 
@@ -38,7 +38,7 @@ impl<'a> BridgeFSFuse<BaybridgeHashPointerReference<'a>, BaybridgeContentStore<'
     }
 }
 
-impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesystem
+impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore> Filesystem
     for BridgeFSFuse<IndexHashT, StoreT>
 {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
