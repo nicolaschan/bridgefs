@@ -16,10 +16,8 @@ use crate::{
 
 #[derive(Debug)]
 pub struct BridgeFS<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> {
-    // TODO: make private
-    pub index_hash: IndexHashT,
-    // TODO: make private
-    pub store: StoreT,
+    index_hash: IndexHashT,
+    store: StoreT,
 }
 
 impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
@@ -33,20 +31,17 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
 impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
     BridgeFS<IndexHashT, StoreT>
 {
-    // TODO: make private
-    pub fn get_index(&mut self) -> Index {
+    fn get_index(&mut self) -> Index {
         self.store.get_parsed(&self.index_hash.get_typed())
     }
 
-    // TODO: make private
-    pub fn get_record_by_inode(&mut self, inode: INode) -> Option<Record> {
+    fn get_record_by_inode(&mut self, inode: INode) -> Option<Record> {
         let index = self.get_index();
         let record_hash = index.get_child_by_inode(&inode)?;
         Some(self.store.get_parsed(record_hash))
     }
 
-    // TODO: make private
-    pub fn add_child(
+    fn add_child(
         &mut self,
         parent_inode: INode,
         name: Filename,
@@ -142,6 +137,18 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
         match record.inner {
             Record::Directory(directory) => Ok(INodeResponse::new(directory, record.inode)),
             _ => Err(FileOperationError::NotADirectory),
+        }
+    }
+
+    fn lookup_file_by_name(
+        &mut self,
+        parent: INode,
+        name: &Filename,
+    ) -> Result<INodeResponse<FileRecord>, FileOperationError> {
+        let record = self.lookup_record_by_name(parent, name)?;
+        match record.inner {
+            Record::File(file) => Ok(INodeResponse::new(file, record.inode)),
+            _ => Err(FileOperationError::IsADirectory),
         }
     }
 
@@ -282,5 +289,29 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore>
         parent.inner.remove(name);
         self.update_index(parent.inode, parent.inner.into());
         Ok(())
+    }
+
+    pub fn remove_file_by_name(
+        &mut self,
+        parent: INode,
+        name: &Filename,
+    ) -> Result<(), FileOperationError> {
+        self.lookup_file_by_name(parent, name)?; // Ensure target exists and is a file
+
+        let mut parent = self.lookup_directory_by_inode(parent)?;
+        parent.inner.remove(name);
+        self.update_index(parent.inode, parent.inner.into());
+        Ok(())
+    }
+
+    pub fn update_attributes_by_inode(
+        &mut self,
+        inode: INode,
+        attributes: CommonAttrs,
+    ) -> Result<INodeResponse<Record>, FileOperationError> {
+        let mut record = self.lookup_record_by_inode(inode)?;
+        record.inner.set_attrs(attributes);
+        self.update_index(inode, record.inner.clone());
+        Ok(INodeResponse::new(record.inner, inode))
     }
 }

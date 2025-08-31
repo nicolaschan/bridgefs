@@ -13,10 +13,17 @@ pub enum Record {
 }
 
 impl Record {
-    pub fn mut_attrs(&mut self) -> &mut CommonAttrs {
+    pub fn common_attrs(&self) -> &CommonAttrs {
         match self {
-            Record::File(file_record) => &mut file_record.common_attrs,
-            Record::Directory(directory_record) => &mut directory_record.common_attrs,
+            Record::File(file_record) => &file_record.common_attrs,
+            Record::Directory(directory_record) => &directory_record.common_attrs,
+        }
+    }
+
+    pub fn set_attrs(&mut self, attrs: CommonAttrs) {
+        match self {
+            Record::File(file_record) => file_record.common_attrs = attrs,
+            Record::Directory(directory_record) => directory_record.common_attrs = attrs,
         }
     }
 }

@@ -4,18 +4,13 @@ use std::{
 };
 
 use bridgefs_core::{
-    bridgefs::BridgeFS,
-    content_store::{ContentStore, ParsingContentStoreExt},
-    file_record::{CommonAttrs, Record},
-    hash_pointer::TypedHashPointerReference,
-    index::Index,
-    inode::INode,
+    bridgefs::BridgeFS, content_store::ContentStore, file_record::CommonAttrs,
+    hash_pointer::TypedHashPointerReference, index::Index,
 };
 use fuser::{
     Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
     ReplyWrite, Request, TimeOrNow,
 };
-use libc::{ENOENT, ENOTDIR};
 
 use crate::{
     baybridge_adapter::{BaybridgeAdapter, BaybridgeContentStore, BaybridgeHashPointerReference},
@@ -191,50 +186,46 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
         _flags: Option<u32>,
         reply: ReplyAttr,
     ) {
-        let mut index = self.0.get_index();
-        let child_hash = index.get_child_by_inode(&ino.into());
-        if child_hash.is_none() {
-            reply.error(ENOENT);
-            return;
-        }
-        let mut file_record: Record = self.0.store.get_parsed(child_hash.unwrap());
-        if let Some(mode) = mode {
-            file_record.mut_attrs().perm = mode as u16;
-        }
-
-        if let Some(atime) = atime {
-            file_record.mut_attrs().atime = match atime {
-                TimeOrNow::SpecificTime(t) => t,
-                TimeOrNow::Now => SystemTime::now(),
-            };
-        }
-
-        if let Some(mtime) = mtime {
-            file_record.mut_attrs().mtime = match mtime {
-                TimeOrNow::SpecificTime(t) => t,
-                TimeOrNow::Now => SystemTime::now(),
-            };
-        }
-
-        if let Some(ctime) = ctime {
-            file_record.mut_attrs().ctime = ctime;
-        }
-
-        if let Some(crtime) = crtime {
-            file_record.mut_attrs().crtime = crtime;
-        }
-
-        let new_file_record_hash = self.0.store.add_parsed(&file_record);
-        index.update_child(ino.into(), new_file_record_hash);
-        self.0
-            .index_hash
-            .set_typed(&self.0.store.add_parsed(&index));
-
-        let attr = match file_record {
-            Record::File(file_record) => file_record.attrs(ino.into()),
-            Record::Directory(_directory_record) => todo!(),
+        let record = match self.0.lookup_record_by_inode(ino.into()) {
+            Ok(record) => record,
+            Err(e) => {
+                reply.error(e.to_errno());
+                return;
+            }
         };
-        reply.attr(&TTL, &attr);
+        let mut attributes = record.inner.common_attrs().clone();
+
+        if let Some(mode) = mode {
+            attributes.perm = mode as u16;
+        }
+        if let Some(atime) = atime {
+            attributes.atime = match atime {
+                TimeOrNow::SpecificTime(t) => t,
+                TimeOrNow::Now => SystemTime::now(),
+            };
+        }
+        if let Some(mtime) = mtime {
+            attributes.mtime = match mtime {
+                TimeOrNow::SpecificTime(t) => t,
+                TimeOrNow::Now => SystemTime::now(),
+            };
+        }
+        if let Some(ctime) = ctime {
+            attributes.ctime = ctime;
+        }
+        if let Some(crtime) = crtime {
+            attributes.crtime = crtime;
+        }
+
+        match self
+            .0
+            .update_attributes_by_inode(ino.into(), attributes.clone())
+        {
+            Ok(record) => reply.attr(&TTL, &record.attrs()),
+            Err(e) => {
+                reply.error(e.to_errno());
+            }
+        }
     }
 
     fn mkdir(
@@ -265,29 +256,14 @@ impl<IndexHashT: TypedHashPointerReference<Index>, StoreT: ContentStore> Filesys
     }
 
     fn unlink(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        let mut index = self.0.get_index();
-
-        let parent_inode: INode = parent.into();
-        let parent = self.0.get_record_by_inode(parent_inode);
-        if parent.is_none() {
-            reply.error(ENOENT);
-            return;
-        }
-        let mut parent = match parent.unwrap() {
-            Record::Directory(dir) => dir,
-            _ => {
-                reply.error(ENOTDIR);
-                return;
+        match self.0.remove_file_by_name(parent.into(), &name.into()) {
+            Ok(_) => {
+                reply.ok();
             }
-        };
-
-        parent.remove(&name.into());
-        let parent_hash = self.0.store.add_parsed(&Record::Directory(parent));
-        index.update_child(parent_inode, parent_hash);
-        self.0
-            .index_hash
-            .set_typed(&self.0.store.add_parsed(&index));
-        reply.ok();
+            Err(e) => {
+                reply.error(e.to_errno());
+            }
+        }
     }
 
     fn rmdir(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {

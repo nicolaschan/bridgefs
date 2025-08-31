@@ -209,3 +209,67 @@ fn test_remove_directory_empty() {
     assert!(dir_record_after.is_err());
     assert_eq!(dir_record_after.unwrap_err(), FileOperationError::NotFound);
 }
+
+#[test]
+fn test_remove_directory_on_file() {
+    let mut bridgefs = in_memory_bridgefs();
+    let remove_result = bridgefs.remove_directory_by_name(FUSE_ROOT_ID.into(), &FILENAME.into());
+    assert!(remove_result.is_err());
+    assert_eq!(
+        remove_result.unwrap_err(),
+        FileOperationError::NotADirectory
+    );
+
+    // Ensure the file still exists
+    let file_record_after = bridgefs.lookup_record_by_name(FUSE_ROOT_ID.into(), &FILENAME.into());
+    assert!(file_record_after.is_ok());
+}
+
+#[test]
+fn test_remove_file() {
+    let mut bridgefs = in_memory_bridgefs();
+    let remove_result = bridgefs.remove_file_by_name(FUSE_ROOT_ID.into(), &FILENAME.into());
+    assert!(remove_result.is_ok());
+
+    // Ensure the file is removed
+    let file_record_after = bridgefs.lookup_record_by_name(FUSE_ROOT_ID.into(), &FILENAME.into());
+    assert!(file_record_after.is_err());
+    assert_eq!(file_record_after.unwrap_err(), FileOperationError::NotFound);
+}
+
+#[test]
+fn test_remove_file_on_directory() {
+    let mut bridgefs = in_memory_bridgefs();
+    let remove_result = bridgefs.remove_file_by_name(FUSE_ROOT_ID.into(), &DIRNAME.into());
+    assert!(remove_result.is_err());
+    assert_eq!(remove_result.unwrap_err(), FileOperationError::IsADirectory);
+
+    // Ensure the directory still exists
+    let dir_record_after = bridgefs.lookup_record_by_name(FUSE_ROOT_ID.into(), &DIRNAME.into());
+    assert!(dir_record_after.is_ok());
+}
+
+#[test]
+fn test_update_attributes_on_file() {
+    let mut bridgefs = in_memory_bridgefs();
+    let record = bridgefs.lookup_record_by_name(FUSE_ROOT_ID.into(), &FILENAME.into());
+    assert!(record.is_ok());
+    let inode = record.unwrap().inode;
+
+    let new_attrs = CommonAttrs {
+        uid: 1000,
+        gid: 1000,
+        perm: 0o644,
+        ..Default::default()
+    };
+    let update_result = bridgefs.update_attributes_by_inode(inode, new_attrs);
+    assert!(update_result.is_ok());
+
+    let updated_record = bridgefs.lookup_record_by_inode(inode);
+    assert!(updated_record.is_ok());
+    let updated_record = updated_record.unwrap().inner;
+    let updated_attrs = updated_record.common_attrs();
+    assert_eq!(updated_attrs.uid, 1000);
+    assert_eq!(updated_attrs.gid, 1000);
+    assert_eq!(updated_attrs.perm, 0o644);
+}
