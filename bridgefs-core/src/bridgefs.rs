@@ -216,6 +216,7 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         data: &[u8],
     ) -> Result<usize, FileOperationError> {
         // TODO: support sparse files and writing without needing to read existing data
+        let original_file = self.lookup_file_by_inode(inode)?;
         let mut existing_data = self.read_file_data_by_inode(inode, 0, usize::MAX)?;
         if offset > existing_data.datablock.len() {
             existing_data.datablock.data.resize(offset, 0);
@@ -225,8 +226,9 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         }
         existing_data.datablock.data[offset..offset + data.len()].copy_from_slice(data);
 
-        existing_data.file.inner.content_hash =
-            self.store.store_new_content(&existing_data.datablock);
+        existing_data.file.inner.content_hash = self
+            .store
+            .replace_content(&original_file.inner.content_hash, &existing_data.datablock);
         existing_data.file.inner.size = existing_data.datablock.len() as u64;
         existing_data.file.inner.common_attrs.mtime = SystemTime::now();
         existing_data.file.inner.common_attrs.ctime = SystemTime::now();
@@ -287,7 +289,7 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         parent: INode,
         name: &Filename,
     ) -> Result<(), FileOperationError> {
-        self.lookup_file_by_name(parent, name)?; // Ensure target exists and is a file
+        let deleted_file = self.lookup_file_by_name(parent, name)?;
 
         let mut parent = self.lookup_directory_by_inode(parent)?;
         parent.inner.remove(name);
