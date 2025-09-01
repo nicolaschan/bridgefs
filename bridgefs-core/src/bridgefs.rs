@@ -40,10 +40,11 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         (index_hash, inode_index)
     }
 
-    fn get_record_by_inode(&mut self, inode: INode) -> Option<Record> {
+    fn get_record_by_inode(&mut self, inode: INode) -> Option<(TypedHashPointer<Record>, Record)> {
         let (_, index) = self.get_index();
         let record_hash = index.lookup_inode(&inode)?;
-        Some(self.store.get_parsed(record_hash))
+        let record = self.store.get_parsed(record_hash);
+        Some((record_hash.clone(), record))
     }
 
     fn add_child(
@@ -51,7 +52,7 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         parent_inode: INode,
         filename: Filename,
         record: Record,
-    ) -> Result<INode, FileOperationError> {
+    ) -> Result<(TypedHashPointer<Record>, INode), FileOperationError> {
         let mut parent = self.lookup_directory_by_inode(parent_inode)?;
         if parent.inner.children.contains_key(&filename) {
             return Err(FileOperationError::AlreadyExists);
@@ -59,13 +60,13 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
 
         let (prev_index_hash, mut index) = self.get_index();
         let record_hash = self.store.store_new_content(&record);
-        let inode = index.insert_new_inode(record_hash);
+        let inode = index.insert_new_inode(record_hash.clone());
         self.index_hash
             .set_typed(&self.store.replace_content(&prev_index_hash, &index));
 
         parent.inner.insert(filename, inode);
         self.update_index(parent.inode, parent.inner.into());
-        Ok(inode)
+        Ok((record_hash, inode))
     }
 
     fn update_index(&mut self, inode: INode, record: Record) {
@@ -83,24 +84,22 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
     pub fn lookup_record_by_inode(
         &mut self,
         inode: INode,
-    ) -> Result<INodeResponse<Record>, FileOperationError> {
-        let record = self.get_record_by_inode(inode);
-        if record.is_none() {
+    ) -> Result<INodeResponse<Record, Record>, FileOperationError> {
+        let result = self.get_record_by_inode(inode);
+        if result.is_none() {
             return Err(FileOperationError::NotFound);
         }
-        Ok(INodeResponse {
-            inner: record.unwrap(),
-            inode,
-        })
+        let (source, inner) = result.unwrap();
+        Ok(INodeResponse::new(inner, inode, source))
     }
 
     pub fn lookup_file_by_inode(
         &mut self,
         inode: INode,
-    ) -> Result<INodeResponse<FileRecord>, FileOperationError> {
+    ) -> Result<INodeResponse<FileRecord, Record>, FileOperationError> {
         let record = self.lookup_record_by_inode(inode)?;
-        match record.inner {
-            Record::File(file) => Ok(INodeResponse::new(file, record.inode)),
+        match record.inner.clone() {
+            Record::File(file) => Ok(record.swap_inner(file)),
             _ => Err(FileOperationError::IsADirectory),
         }
     }
@@ -108,10 +107,10 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
     fn lookup_directory_by_inode(
         &mut self,
         inode: INode,
-    ) -> Result<INodeResponse<DirectoryRecord>, FileOperationError> {
+    ) -> Result<INodeResponse<DirectoryRecord, Record>, FileOperationError> {
         let record = self.lookup_record_by_inode(inode)?;
-        match record.inner {
-            Record::Directory(directory) => Ok(INodeResponse::new(directory, record.inode)),
+        match record.inner.clone() {
+            Record::Directory(directory) => Ok(record.swap_inner(directory)),
             _ => Err(FileOperationError::NotADirectory),
         }
     }
@@ -120,7 +119,7 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         &mut self,
         parent: INode,
         name: &Filename,
-    ) -> Result<INodeResponse<Record>, FileOperationError> {
+    ) -> Result<INodeResponse<Record, Record>, FileOperationError> {
         let parent = self.lookup_directory_by_inode(parent)?;
         match parent.inner.get(name) {
             Some(&inode) => self.lookup_record_by_inode(inode),
@@ -132,10 +131,10 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         &mut self,
         parent: INode,
         name: &Filename,
-    ) -> Result<INodeResponse<DirectoryRecord>, FileOperationError> {
+    ) -> Result<INodeResponse<DirectoryRecord, Record>, FileOperationError> {
         let record = self.lookup_record_by_name(parent, name)?;
-        match record.inner {
-            Record::Directory(directory) => Ok(INodeResponse::new(directory, record.inode)),
+        match record.inner.clone() {
+            Record::Directory(directory) => Ok(record.swap_inner(directory)),
             _ => Err(FileOperationError::NotADirectory),
         }
     }
@@ -144,10 +143,10 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         &mut self,
         parent: INode,
         name: &Filename,
-    ) -> Result<INodeResponse<FileRecord>, FileOperationError> {
+    ) -> Result<INodeResponse<FileRecord, Record>, FileOperationError> {
         let record = self.lookup_record_by_name(parent, name)?;
-        match record.inner {
-            Record::File(file) => Ok(INodeResponse::new(file, record.inode)),
+        match record.inner.clone() {
+            Record::File(file) => Ok(record.swap_inner(file)),
             _ => Err(FileOperationError::IsADirectory),
         }
     }
@@ -183,7 +182,7 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         parent: INode,
         name: Filename,
         attributes: CommonAttrs,
-    ) -> Result<INodeResponse<FileRecord>, FileOperationError> {
+    ) -> Result<INodeResponse<FileRecord, Record>, FileOperationError> {
         let empty_data = DataBlock::default();
         let content_hash = self.store.store_new_content(&empty_data);
         let file_record = FileRecord::builder()
@@ -191,8 +190,8 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
             .common_attrs(attributes)
             .size(empty_data.len() as u64)
             .build();
-        let inode = self.add_child(parent, name, Record::File(file_record.clone()))?;
-        Ok(INodeResponse::new(file_record, inode))
+        let (source, inode) = self.add_child(parent, name, Record::File(file_record.clone()))?;
+        Ok(INodeResponse::new(file_record, inode, source))
     }
 
     pub fn create_directory(
@@ -200,13 +199,14 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         parent: INode,
         name: Filename,
         attributes: CommonAttrs,
-    ) -> Result<INodeResponse<DirectoryRecord>, FileOperationError> {
+    ) -> Result<INodeResponse<DirectoryRecord, Record>, FileOperationError> {
         let directory_record = DirectoryRecord::builder()
             .common_attrs(attributes)
             .parent(parent)
             .build();
-        let inode = self.add_child(parent, name, Record::Directory(directory_record.clone()))?;
-        Ok(INodeResponse::new(directory_record, inode))
+        let (source, inode) =
+            self.add_child(parent, name, Record::Directory(directory_record.clone()))?;
+        Ok(INodeResponse::new(directory_record, inode, source))
     }
 
     pub fn write_to_file(
@@ -290,6 +290,7 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         name: &Filename,
     ) -> Result<(), FileOperationError> {
         let deleted_file = self.lookup_file_by_name(parent, name)?;
+        self.store.delete_content(&deleted_file.source);
 
         let mut parent = self.lookup_directory_by_inode(parent)?;
         parent.inner.remove(name);
@@ -301,10 +302,10 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         &mut self,
         inode: INode,
         attributes: CommonAttrs,
-    ) -> Result<INodeResponse<Record>, FileOperationError> {
+    ) -> Result<INodeResponse<Record, Record>, FileOperationError> {
         let mut record = self.lookup_record_by_inode(inode)?;
         record.inner.set_attrs(attributes);
         self.update_index(inode, record.inner.clone());
-        Ok(INodeResponse::new(record.inner, inode))
+        Ok(record)
     }
 }
