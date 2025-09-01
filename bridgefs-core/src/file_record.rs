@@ -18,7 +18,7 @@ pub enum Record {
 }
 
 impl<StoreT: ContentStore> HasReferences<StoreT> for Record {
-    fn delete_references(&self, store: &mut CountingStore<StoreT>) {
+    fn delete_references(&self, _new_value: Option<&Self>, store: &mut CountingStore<StoreT>) {
         match self {
             Record::File(file_record) => store.delete_content(&file_record.content_hash),
             Record::Directory(_directory_record) => {

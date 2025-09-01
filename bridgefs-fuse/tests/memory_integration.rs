@@ -273,3 +273,46 @@ fn test_update_attributes_on_file() {
     assert_eq!(updated_attrs.gid, 1000);
     assert_eq!(updated_attrs.perm, 0o644);
 }
+
+#[test]
+fn test_read_after_update_attributes() {
+    let mut bridgefs = in_memory_bridgefs();
+    let record = bridgefs.lookup_record_by_name(FUSE_ROOT_ID.into(), &FILENAME.into());
+    assert!(record.is_ok());
+    let inode = record.unwrap().inode;
+
+    let new_attrs = CommonAttrs {
+        uid: 1000,
+        gid: 1000,
+        perm: 0o644,
+        ..Default::default()
+    };
+    let update_result = bridgefs.update_attributes_by_inode(inode, new_attrs);
+    assert!(update_result.is_ok());
+
+    let read_result = bridgefs.read_file_data_by_inode(inode, 0, 1024);
+    assert!(read_result.is_ok());
+    let data = read_result.unwrap();
+    assert_eq!(data.datablock.data, b"Hello, BridgeFS!");
+}
+
+#[test]
+fn test_create_file_already_exists() {
+    let mut bridgefs = in_memory_bridgefs();
+    let result = bridgefs.create_file(
+        FUSE_ROOT_ID.into(),
+        EMPTY_FILENAME.into(),
+        CommonAttrs::default(),
+    );
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err(), FileOperationError::AlreadyExists);
+}
+
+#[test]
+fn test_create_directory_already_exists() {
+    let mut bridgefs = in_memory_bridgefs();
+    let result =
+        bridgefs.create_directory(FUSE_ROOT_ID.into(), DIRNAME.into(), CommonAttrs::default());
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err(), FileOperationError::AlreadyExists);
+}

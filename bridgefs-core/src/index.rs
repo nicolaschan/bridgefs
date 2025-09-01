@@ -44,7 +44,7 @@ impl INodeIndex {
 }
 
 impl<StoreT: ContentStore> HasReferences<StoreT> for INodeIndex {
-    fn delete_references(&self, _store: &mut CountingStore<StoreT>) {
+    fn delete_references(&self, _new_value: Option<&Self>, _store: &mut CountingStore<StoreT>) {
         // TODO: should we delete references?
     }
 }

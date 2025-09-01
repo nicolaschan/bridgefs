@@ -13,7 +13,7 @@ pub struct CountingStore<T: ContentStore> {
 }
 
 pub trait HasReferences<StoreT: ContentStore> {
-    fn delete_references(&self, store: &mut CountingStore<StoreT>);
+    fn delete_references(&self, new_value: Option<&Self>, store: &mut CountingStore<StoreT>);
 }
 
 impl<StoreT: ContentStore> CountingStore<StoreT> {
@@ -37,7 +37,7 @@ impl<StoreT: ContentStore> CountingStore<StoreT> {
     ) {
         let item_to_delete: T = self.get_parsed(hash);
         self.manifest.remove_reference(hash.into());
-        item_to_delete.delete_references(self);
+        item_to_delete.delete_references(None, self);
     }
 
     pub fn replace_content<T: Encode + Decode<()> + HasReferences<StoreT>>(
@@ -45,7 +45,9 @@ impl<StoreT: ContentStore> CountingStore<StoreT> {
         previous: &TypedHashPointer<T>,
         value: &T,
     ) -> TypedHashPointer<T> {
-        self.delete_content(previous);
+        let item_to_delete: T = self.get_parsed(previous);
+        self.manifest.remove_reference(previous.into());
+        item_to_delete.delete_references(Some(value), self);
         self.store_new_content(value)
     }
 }

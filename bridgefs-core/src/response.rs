@@ -42,6 +42,7 @@ pub enum FileOperationError {
     NotADirectory,
     IsADirectory,
     DirectoryNotEmpty,
+    AlreadyExists,
 }
 
 #[derive(Debug)]

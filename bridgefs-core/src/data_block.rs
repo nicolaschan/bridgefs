@@ -18,7 +18,11 @@ impl DataBlock {
 }
 
 impl<StoreT: ContentStore> HasReferences<StoreT> for DataBlock {
-    fn delete_references(&self, _store: &mut crate::counting_store::CountingStore<StoreT>) {
+    fn delete_references(
+        &self,
+        _new_value: Option<&Self>,
+        _store: &mut crate::counting_store::CountingStore<StoreT>,
+    ) {
         // no-op
     }
 }

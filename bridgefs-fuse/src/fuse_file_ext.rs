@@ -93,6 +93,7 @@ impl FuseErrorExt for FileOperationError {
             FileOperationError::NotADirectory => libc::ENOTDIR,
             FileOperationError::IsADirectory => libc::EISDIR,
             FileOperationError::DirectoryNotEmpty => libc::ENOTEMPTY,
+            FileOperationError::AlreadyExists => libc::EEXIST,
         }
     }
 }

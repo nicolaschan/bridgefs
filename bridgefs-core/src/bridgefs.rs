@@ -52,13 +52,17 @@ impl<IndexHashT: TypedHashPointerReference<INodeIndex>, StoreT: ContentStore>
         filename: Filename,
         record: Record,
     ) -> Result<INode, FileOperationError> {
+        let mut parent = self.lookup_directory_by_inode(parent_inode)?;
+        if parent.inner.children.contains_key(&filename) {
+            return Err(FileOperationError::AlreadyExists);
+        }
+
         let (prev_index_hash, mut index) = self.get_index();
         let record_hash = self.store.store_new_content(&record);
         let inode = index.insert_new_inode(record_hash);
         self.index_hash
             .set_typed(&self.store.replace_content(&prev_index_hash, &index));
 
-        let mut parent = self.lookup_directory_by_inode(parent_inode)?;
         parent.inner.insert(filename, inode);
         self.update_index(parent.inode, parent.inner.into());
         Ok(inode)
